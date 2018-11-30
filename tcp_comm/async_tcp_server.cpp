@@ -7,8 +7,6 @@ using namespace boost;
 using namespace boost::asio;
 using asio::ip::tcp;
 
-// SEE: https://www.boost.org/doc/libs/1_58_0/doc/html/boost_asio/tutorial/tutdaytime3.html
-
 class conn: public enable_shared_from_this<conn>{
 
     tcp::socket sock;
@@ -32,11 +30,9 @@ class conn: public enable_shared_from_this<conn>{
 
         void start(){
             async_write(sock,
-                        buffer(data),
+                        buffer("Hello World!!!\n"),
                         boost::bind(&conn::h_write, shared_from_this())
-                        );
-
-            async_read(s, boost::asio::buffer(data, size), handler);     
+                        );    
         }
 };
 
@@ -47,7 +43,7 @@ class tcp_server{
 
     public:
         tcp_server(io_service& io)
-        :acceptor(io, tcp::endpoint(tcp::v4(), 10000)){
+        :acceptor(io, tcp::endpoint(tcp::v4(), 17000)){
             start_accept();
         }
 
@@ -68,6 +64,7 @@ class tcp_server{
 };
 
 int main(){
+	printf("started\n");
     io_service io;
     tcp_server server(io);
     io.run();
