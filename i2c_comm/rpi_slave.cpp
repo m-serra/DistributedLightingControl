@@ -4,7 +4,15 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+#include <fstream>
+#include <iostream>
+#include <chrono>
+#include <thread>
+#include <cstring>
 #define SLAVE_ADDR 0x48
+
+using namespace std;
+using namespace std::chrono;
 
 int init_slave(bsc_xfer_t &xfer, int addr) {
 	
@@ -37,31 +45,55 @@ int close_slave(bsc_xfer_t &xfer) {
 int main(int argc, char *argv[]) {
 	
 	int status, j, key = 0;
+	ofstream myfile; 
+    myfile.open ("../tcp_comm/i1.txt", ofstream::out | ofstream::trunc);
+    
+    if (!myfile.is_open()) {
+		cerr << "Error: " << strerror(errno);
+		return 1;
+	}
 	
-	if (gpioInitialise() < 0) {
-		printf("Erro 1\n"); 
+	if (gpioInitialise() < 0){
+		cerr << "Error: " << strerror(errno);
 		return 1;
 	}
 	
 	bsc_xfer_t xfer;
 	status = init_slave(xfer, SLAVE_ADDR);
-	
-	while(key != 'q') {
 		
+	int rate = 2;
+	unsigned int block_size_in_seconds = 15;
+	using clock = std::chrono::steady_clock;
+	const auto times = rate * block_size_in_seconds;
+    const auto delay = std::chrono::microseconds{1000000 / rate};
+    auto next_sample = clock::now() + delay;
+
+	//for(int i = 0; i < times; i++){
+	while(1){			
 		xfer.txCnt = 0;
 		status = bscXfer(&xfer);
-		printf("Received %d bytes\n", xfer.rxCnt);
+
+		if(xfer.rxCnt > 0){
+			printf("Received %d bytes\n", xfer.rxCnt);
+			
+			for(j=0;j<xfer.rxCnt;j++){
+				myfile << xfer.rxBuf[j];
+				printf("%c",xfer.rxBuf[j]);
+			}
+			
+			myfile << "\n";
+			printf("\n");
+		}
 		
-		for(j=0;j<xfer.rxCnt;j++)
-			printf("%c",xfer.rxBuf[j]);
+		myfile.seekp (0, myfile.beg); // reset file pointer
 		
-		printf("\n");
-		//printf("\n Press q to quit.\n");
-		key = getchar();
+		std::this_thread::sleep_until(next_sample);
+		next_sample += delay;
 	}
 	
 	status = close_slave(xfer);
 	gpioTerminate();
+	myfile.close();
 	
 	return 0;
 }
