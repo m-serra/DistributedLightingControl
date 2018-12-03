@@ -1,3 +1,4 @@
+// g++ -std=c++11 -lboost_system sync_tcp_client.cpp -o sync_tcp_client
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
@@ -10,12 +11,12 @@ int main(int argc, char** argv){
 
     io_service io;
     std::string msg_out;
-    size_t len;
+    size_t len = 8;
 
     boost::system::error_code err;
     tcp::resolver resolver(io); //finds endpoints from address
-    //tcp::resolver::query query("192.168.27.149", "17000");
-    tcp::resolver::query query("127.0.0.1", "17000");
+    tcp::resolver::query query("192.168.43.248", "17000");
+    //tcp::resolver::query query("127.0.0.1", "17000");
     
     tcp::resolver::iterator endpoint = resolver.resolve(query);
     tcp::socket socket(io);
@@ -37,16 +38,17 @@ int main(int argc, char** argv){
             msg_out.clear();    
         } 
 
-        boost::array<char, 128> buf;
-        len = socket.read_some(buffer(buf), err);
+        boost::array<char, 8> buf;
+        //len = 
+        socket.read_some(buffer(buf), err);
 
         if(err == error::eof)
             break;
         //else if(err)
         //    std::cout << "Unknown Error";
-        
-        std::cout << "Echo: ";
-        std::cout.write(buf.data(), len);
+        //std::cout << "Len: " << len << "\n";
+        //std::cout.write(buf.data(), len);
+        std::cout << buf.data();
         std::cout << "\n";
             
     }
