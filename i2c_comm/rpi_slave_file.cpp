@@ -42,27 +42,34 @@ int close_slave(bsc_xfer_t &xfer) {
 	return bscXfer(&xfer);
 }
 
-void i2c_slave_monitor(int sampling_rate, DeskIlluminationData data){
-
-	int satus, j;
-	int desk, time_stamp, i_meas, i_ref;
-	int len = 8;
-	char msg[len];
-
+int main(int argc, char *argv[]) {
+	
+	int status, j, key = 0;
+	ofstream myfile; 
+    myfile.open ("../tcp_comm/i1.txt", ofstream::out | ofstream::trunc);
+    
+    if (!myfile.is_open()) {
+		cerr << "Error: " << strerror(errno);
+		return 1;
+	}
+	
 	if (gpioInitialise() < 0){
 		cerr << "Error: " << strerror(errno);
 		return 1;
 	}
-
+	
 	bsc_xfer_t xfer;
 	status = init_slave(xfer, SLAVE_ADDR);
-
+		
+	int rate = 2;
+	unsigned int block_size_in_seconds = 15;
 	using clock = std::chrono::steady_clock;
 	const auto times = rate * block_size_in_seconds;
-    const auto delay = std::chrono::microseconds{1000000 / sampling_rate};
+    const auto delay = std::chrono::microseconds{1000000 / rate};
     auto next_sample = clock::now() + delay;
 
-    while(1){			
+	//for(int i = 0; i < times; i++){
+	while(1){			
 		xfer.txCnt = 0;
 		status = bscXfer(&xfer);
 
@@ -70,21 +77,23 @@ void i2c_slave_monitor(int sampling_rate, DeskIlluminationData data){
 			printf("Received %d bytes\n", xfer.rxCnt);
 			
 			for(j=0;j<xfer.rxCnt;j++){
-				msg[j] << xfer.rxBuf[j];
+				myfile << xfer.rxBuf[j];
 				printf("%c",xfer.rxBuf[j]);
 			}
-
-			sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
+			
+			myfile << "\n";
 			printf("\n");
-			data.new_sample(time_stamp, i_meas, i_ref);
 		}
-				
+		
+		myfile.seekp (0, myfile.beg); // reset file pointer
+		
 		std::this_thread::sleep_until(next_sample);
 		next_sample += delay;
 	}
-
+	
 	status = close_slave(xfer);
 	gpioTerminate();
+	myfile.close();
 	
-	return;
+	return 0;
 }

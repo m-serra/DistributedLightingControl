@@ -1,117 +1,114 @@
-/*
-g++ -std=c++11 -lboost_system async_tcp_server.cpp -o async_tcp_server
-*/
+//
+// async_tcp_echo_server.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) 2003-2015 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
 
-#include <boost/shared_ptr.hpp>
-#include <boost/bind.hpp>
-#include <boost/enable_shared_from_this.hpp>
-#include <boost/asio/placeholders.hpp>
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+#include <utility>
 #include <boost/asio.hpp>
-
-using namespace boost;
-using namespace boost::asio;
-using asio::ip::tcp;
+#include <fstream>
 
 
-class Connection: public enable_shared_from_this<Connection>{
+using namespace std;
+using boost::asio::ip::tcp;
 
-    tcp::socket socket_;
-    tcp::acceptor acceptor_;
-    std::string msg_out;
-    std::string msg_in;
-
-    void handle_write(){
-        // do somehting to preserve connection or close it cleanly
-    }
-
-    void handle_read(){
-        // do somehting to preserve connection or close it cleanly
-        async_write(socket_,
-                    buffer("Hello World!!!\n"),
-                    boost::bind(&Connection::handle_write, shared_from_this())
-                    ); 
-    }
-
+class session
+    : public std::enable_shared_from_this<session>
+{
     public:
-
-        Connection(tcp::acceptor &acceptor){
-            acceptor_(acceptor);
-            socket_(acceptor.get_io_service(), tcp::v4());
-        }
-
-        static shared_ptr<Connection> create(tcp::acceptor &acceptor){
-            return shared_ptr<Connection>(new Connection(acceptor));
-        }
-
-        // getter for the field socket_()
-        tcp::socket& socket(){
-            return socket_;
-        }
+    
+        session(tcp::socket socket): 
+            socket_(std::move(socket))
+        {}
 
         void start(){
-
-            //ask the io_service to execute the given handler
-            async_read(socket_, 
-                       boost::asio::buffer(msg_in),
-                       boost::bind(&Connection::handle_read,
-                       shared_from_this(),
-                       boost::asio::placeholders::error,
-                       boost::asio::placeholders::bytes_transferred));  
+            do_read();
         }
-
-    /*private:
-
-        void start_accept(){
-            acceptor_.async_accept(socket_, 
-                boost::bind(&Connection::handle_accept, shared_from_this(),
-                    boost::asio::placeholders::error));
-
-        }
-
-        void handle_accept(const boost::system::error_code& err){
-       
-                       
-        }*/
-};
-
-class tcp_server{
 
     private:
-        tcp::acceptor acceptor;
+  
+        void do_read(){
+            
+            auto self(shared_from_this());
+            socket_.async_read_some(boost::asio::buffer(data_, max_length),
+                [this, self](boost::system::error_code ec, std::size_t length){
+                
+                if (!ec){
+                    printf("Request: %s\n", data_);
+                    do_write(length);
+                }
+            });
+        }
+
+        void do_write(std::size_t length){
+			  
+            std::string line;
+            data_tuple = data.get_last_sample();
+            sprintf (msg_out, "%d_%d_%d", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
+            
+            std::cout << "Reply: " << msg_out << "\n\n";
+                
+            auto self(shared_from_this());
+            boost::asio::async_write(socket_, boost::asio::buffer(msg_out, max_length),
+                [this, self](boost::system::error_code ec, std::size_t /*length*/){
+                    
+                    if (!ec){
+                        do_read();
+                    }
+            });
+        }
+
+    tcp::socket socket_;
+    enum { max_length = 8 };
+    char data_[max_length];
+    char msg_out[max_length];
+    int data_tuple[3];
+    int desk = 1;
+};
+
+class server{
 
     public:
-        tcp_server(io_service& io):
-            //initialise an acceptor to listen on TCP port 17000
-            acceptor(io, tcp::endpoint(tcp::v4(), 17000))
+      
+        server(boost::asio::io_service& io_service, short port)
+            : acceptor_(io_service, tcp::endpoint(tcp::v4(), port)),
+            socket_(io_service)
         {
-            start_accept();
+            do_accept();
         }
 
     private:
-        
-        void start_accept(){
-            // create a socket and initiate an asynchronous accept operation 
-            // to wait for a new connection    
-            shared_ptr<Connection> new_conn = Connection::create(acceptor);
-            
-            acceptor.async_accept(new_conn->socket(),
-                                  boost::bind(&tcp_server::handle_accept,
-                                              this,
-                                              new_conn)
-                                  );
+      
+      void do_accept(){
 
-        }
+        acceptor_.async_accept(socket_,
+            [this](boost::system::error_code ec){
+                if (!ec){
+                    std::make_shared<session>(std::move(socket_))->start();
+                }
 
-        void handle_accept(shared_ptr<Connection> new_conn){
-            new_conn->start();
-            start_accept();
-        }
+                do_accept();
+            });
+      }
+
+      tcp::acceptor acceptor_;
+      tcp::socket socket_;
 };
 
-int main(){
-	printf("started\n");
-    io_service io;
-    tcp_server server(io);
-    io.run();
-    return 0;
+void run_tcp_server(int port){
+
+    try{
+        boost::asio::io_service io_service;
+        server s(io_service, port);
+        io_service.run();
+    catch(std::exception$ e){
+        std::cerr << "Exception: " << e.what() << "\n";
+    }
 }
