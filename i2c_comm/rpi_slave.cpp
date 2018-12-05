@@ -9,6 +9,8 @@
 #include <chrono>
 #include <thread>
 #include <cstring>
+#include "../tcp_comm/DeskIlluminationData.hpp"
+#include "rpi_slave.h"
 #define SLAVE_ADDR 0x48
 
 using namespace std;
@@ -42,24 +44,25 @@ int close_slave(bsc_xfer_t &xfer) {
 	return bscXfer(&xfer);
 }
 
-void i2c_slave_monitor(int sampling_rate, DeskIlluminationData data){
+void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 
-	int satus, j;
+	int status, j;
 	int desk, time_stamp, i_meas, i_ref;
 	int len = 8;
 	char msg[len];
 
 	if (gpioInitialise() < 0){
 		cerr << "Error: " << strerror(errno);
-		return 1;
+		return;
 	}
 
 	bsc_xfer_t xfer;
 	status = init_slave(xfer, SLAVE_ADDR);
-
+	
+	int block_size_in_seconds = 30;
 	using clock = std::chrono::steady_clock;
-	const auto times = rate * block_size_in_seconds;
-    const auto delay = std::chrono::microseconds{1000000 / sampling_rate};
+	const auto times = sampling_frequency * block_size_in_seconds;
+    const auto delay = std::chrono::microseconds{1000000 / sampling_frequency};
     auto next_sample = clock::now() + delay;
 
     while(1){			
