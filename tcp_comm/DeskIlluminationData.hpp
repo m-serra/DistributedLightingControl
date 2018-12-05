@@ -3,7 +3,7 @@
 #include <iostream>
 #include <mutex>
 
-using namespace std:
+using namespace std;
 
 class DeskIlluminationData{
 
@@ -15,22 +15,21 @@ class DeskIlluminationData{
     
     public:
         int n_samples;
-        double *time_stamp;
+        int *time_stamp;
         int *i_meas;
         int *i_ref;
 
-        DeskIlluminationData(int sampling_frequency_, mutex mtx_){
+        DeskIlluminationData(int sampling_frequency_){
 
             sampling_frequency = sampling_frequency_;
             n_samples = 0;
             last_sample_pointer = 0;
             n_samples_minute = 60 * sampling_frequency_;
-            mtx = mtx_;
             
             try{
                 time_stamp = new int [n_samples_minute];
                 i_meas = new int [n_samples_minute];
-                r_ref = new int [n_samples_minute];
+                i_ref = new int [n_samples_minute];
             }
             catch (bad_alloc& ba){
                 cerr << "bad_alloc caught: " << ba.what() << '\n';
@@ -43,8 +42,8 @@ class DeskIlluminationData{
             }
         }
 
-        void new_sample(double time_, int i_meas_, int i_ref_);
-        int* get_last_sample();
+        void new_sample(int time_, int i_meas_, int i_ref_);
+        void get_last_sample(int *data_tuple);
 
 };
 
