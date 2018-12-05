@@ -70,15 +70,16 @@ void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 		status = bscXfer(&xfer);
 
 		if(xfer.rxCnt > 0){
-			printf("Received %d bytes\n", xfer.rxCnt);
+			// Protect with mutex
+			//printf("Received %d bytes\n", xfer.rxCnt);
 			
 			for(j=0;j<xfer.rxCnt;j++){
-				msg[j] << xfer.rxBuf[j];
-				printf("%c",xfer.rxBuf[j]);
+				msg[j] = xfer.rxBuf[j];
+				//printf("%c",xfer.rxBuf[j]);
 			}
-
+			
 			sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
-			printf("\n");
+			//printf("\n");
 			data.new_sample(time_stamp, i_meas, i_ref);
 		}
 				

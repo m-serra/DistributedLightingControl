@@ -61,7 +61,7 @@ class session
 			printf("WRITEEEEEEE\n");
             std::string line;
             data.get_last_sample(data_tuple);
-            sprintf (msg_out, "%d_%d_%d", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
+            sprintf (msg_out, "%d_%d_%d_%d", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
             
             
             std::cout << "Reply: " << msg_out << "\n\n";

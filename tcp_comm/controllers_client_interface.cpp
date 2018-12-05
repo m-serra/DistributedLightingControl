@@ -1,3 +1,4 @@
+// g++ -std=c++11 -lrt -lpigpio -pthread -lboost_system *.cpp ../i2c_comm/rpi_slave.cpp -o controllers_client_interface
 #include <mutex>
 #include <iostream>
 #include <thread>

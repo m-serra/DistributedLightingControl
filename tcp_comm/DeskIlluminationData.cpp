@@ -8,6 +8,7 @@ void DeskIlluminationData::new_sample(int time_, int i_meas_, int i_ref_){
     }
 
     mtx.lock();
+    //printf("new_sample: %d_%d_%d\n", time_, i_meas_, i_ref_);
     last_sample_pointer = -1;
     time_stamp[last_sample_pointer + 1] = time_;
     i_meas[last_sample_pointer + 1] = i_meas_;
