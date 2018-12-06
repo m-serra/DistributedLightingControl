@@ -23,7 +23,7 @@ class DeskIlluminationData{
 
             sampling_frequency = sampling_frequency_;
             n_samples = 0;
-            last_sample_pointer = 0;
+            last_sample_pointer = -1;
             n_samples_minute = 60 * sampling_frequency_;
             
             try{
@@ -44,6 +44,7 @@ class DeskIlluminationData{
 
         void new_sample(int time_, int i_meas_, int i_ref_);
         void get_last_sample(int *data_tuple);
+        int get_n_samples_minute();
 
 };
 
