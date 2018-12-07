@@ -10,12 +10,27 @@ using namespace std;
 
 mutex mtx;
 
-int main(){
+int main(int argc, char* argv[]){
 	
+	if(argc < 2){
+		printf("Please provide the number of luminaires\n");
+		return 1;
+	}
 	
     int sampling_frequency = 2;
+    int n_luminaires = atoi(argv[1]);
     
-    DeskIlluminationData data{sampling_frequency};
+    // Make array of data, one for each luminaire.
+    // Ideally receive information about how many luminaires the system has
+    
+    //DeskIlluminationData data[n_luminaires];
+    DeskIlluminationData data;
+    n_luminaires = 1; // DELETE
+    
+    //initialize data objects
+    for(int i = 0; i < n_luminaires;i++){
+		data.set_sampling_frequency(sampling_frequency);
+	}
 
     thread t1 {i2c_slave_monitor, sampling_frequency, ref(data)};
     cout << "Created Child Thread 1 # " << t1.get_id() << endl;

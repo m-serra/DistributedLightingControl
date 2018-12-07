@@ -25,10 +25,15 @@ class session
 {
 	tcp::socket socket_;
     enum { max_length = 8 };
-    char data_[max_length];
-    char msg_out[max_length];
+    char msg_in[max_length];
+    char str[max_length];
+    char* msg_out;
+    char request; //g: current value; s: start/stop stream; b: last minute buffer
+    char statistic;
     int data_tuple[3];
-    int desk = 1;
+    int desk = -1;
+    char *buff;
+    
     DeskIlluminationData& data;
 	
     public:
@@ -36,7 +41,10 @@ class session
         session(tcp::socket socket, DeskIlluminationData& data_): 
             socket_(std::move(socket)),
             data(data_)
-        {}
+        {
+			int n_samples_minute = data.get_n_samples_minute();
+			buff = new char [(max_length+1) * n_samples_minute];
+		}
 
         void start(){
             do_read();
@@ -47,58 +55,65 @@ class session
         void do_read(){
             
             auto self(shared_from_this());
-            socket_.async_read_some(boost::asio::buffer(data_, max_length),
+            socket_.async_read_some(boost::asio::buffer(msg_in, max_length),
                 [this, self](boost::system::error_code ec, std::size_t length){
                 
                 if (!ec){
-                    printf("Request: %s\n", data_);
-                    /* PROCESS INFORMATION IN REQUEST
-                     * - mode
-                     * - statistic
-                     */
-                    if(mode == 'm')
-						do_write('m', 0);
+                    printf("Request: %s\n",msg_in);
+                    
+                    if(strlen(msg_in) == 1 && strcmp(msg_in, "r") == 0){
+						// Handle reset request
 					}
-					else if(mode == 'v'){
-						do_write('v', -1);
+					else{
+						sscanf (msg_in, "%c %c %d", &request, &statistic, &desk);
+						
+						if(request == 'g'){
+							do_write(-1);
+						}
+						else if(request == 'b'){
+							do_write(0);
+						}
+						else{
+							printf("Unknown request\n");
+							do_read(); // sure??
+						}
 					}
                 }
             });
         }
 
-        void do_write(char mode, int sample){
-			/* mode:
-			 * s: stream
-			 * m: last minute
-			 * v: last value
-			 */
-            
-            if(mode == 'm'){
+		// instead of char mode I can use the class field request. For now this is less
+		// prone to errors
+        void do_write(int sample){
+
+            if(request == 'g'){
 				data.get_last_sample(data_tuple);
+				sprintf (str, "%d_%d_%d_%d\n", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
+				msg_out = str;
 			}
-			else if(mode == 'v'){ 
-				data.get_sample_i(data_tuple, sample);
+			else if(request == 'b'){ 
+				data.get_minute_history(desk, buff);
+				msg_out = buff;
 			}
-			
-            sprintf (msg_out, "%d_%d_%d_%d", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
-            
-            
+			     
             std::cout << "Reply: " << msg_out << "\n\n";
                 
             auto self(shared_from_this());
             boost::asio::async_write(socket_, boost::asio::buffer(msg_out, max_length),
-                [this, self](boost::system::error_code ec, std::size_t /*length*/){
+                [sample, this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
-						if(mode == 'm' && sample <= data.get_n_samples_minute()){
-							do_write('m', sample + 1)
-						}
-						else if(mode == 's'){
 						
+						/*if(request == 'b' && sample < data.get_n_samples_minute()){
+							do_write(sample + 1);
 						}
-						else{
+						else if(request == 's'){
+							//Handle streamm request
+						}
+						else{*/
+							//if current value or last value of last minute buffer
 							do_read();
-						}
+						/*}*/
                     }
             });
         }
