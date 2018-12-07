@@ -8,7 +8,14 @@ double f = 1.0;
 double K11 = 0.0;
 double K12 = 0.0;
 double K2[24];
+double my_o = 0.0;
+double other_o = 0.0;
+double other_Kii = 0.0;
+double other_Kij = 0.0;
 char charVal[10];
+char charValK11[10];
+char charValK12[10];
+char charValo[10];
 double KK[25];
 int p = 0;
 double vled;
@@ -29,6 +36,7 @@ int a = 1;
 char arduino ='0';
 char other_arduino ='0';
 char myConcatenation[20];
+boolean get_external_luminance = true;
 
 void setup(){
   Serial.begin(1000000);
@@ -40,50 +48,38 @@ void setup(){
 
 void loop(){
   if ((micros() - t_start_cycle)*pow(10,-6) >= Ts){
-    Serial.println("entrei!");
     //Store the time at which the cycle begins
     t_start_cycle = micros();
     
     if(Wire.available() == 0 && a == 1){ //if nothing is on the bus we can send
-      Serial.println("antes de transmitir");
       Wire.beginTransmission(address); //get BUS
       Wire.write("1");  
-      Serial.println("depois de escrever");
       Wire.endTransmission(); //release BUS
-      Serial.println("fim de transmitir");
     }
     
     delay(100);
     a = 2;
 
-    if (init_flag =='1'){
+    if (init_flag == '1'){
       arduino = '2';
       other_arduino = '1';
       Serial.print("Arduino");
       Serial.println(arduino);
-    }else{
+    }else if(init_flag == '0'){
       arduino = '1';
       other_arduino = '2';
       Serial.print("Arduino");
       Serial.println(arduino);
     }
 
-    if (arduino == '1' && calib_flag1=='0'){
+    if (arduino == '1' && calib_flag1 == '0'){
       LDR_calib(1);
+      
     }
     
-    if (calib_flag1 == '1'){
+    if (arduino == '2' && calib_flag1 == '1'){
       LDR_calib(2);
     }
-    
-    if (calib_flag=='1'){
-      vi = ((analogRead(LDR)*5.0)/1023);
-      Li=pow(10,-b/m)*pow(((5/vi)-1),1/m);
-      K2[p]=(Li/f);
-      Serial.print("  K12 ");
-      Serial.println(K2[p]);
-      p=p+1;
-    }   
   }
 }
 
@@ -103,8 +99,6 @@ void receiveEvent(int howMany){
     i++;
   }
   
-  calib_flag = '0';
-  
   if(msg_received[0] == 'L'){
     calib_flag = '1';
     
@@ -120,12 +114,12 @@ void receiveEvent(int howMany){
     f = atof(men); 
     vi = ((analogRead(LDR)*5.0)/1023);
     Li = pow(10,-b/m)*pow(((5/vi)-1),1/m);
-    Serial.print("  ");
-    Serial.print(Li);
+    //Serial.print("  ");
+    //Serial.print(Li);
     
     K2[p] = (Li/f);
-    Serial.print("  K12 ");
-    Serial.println(K2[p]);
+    //Serial.print("  K12 ");
+    //Serial.println(K2[p]);
     p = p+1;
     
   }
@@ -136,9 +130,37 @@ void receiveEvent(int howMany){
     }
   
     K12 = K12/24;
-    Serial.print("K12  ");
-    Serial.println(K12);
+    //Serial.print("K12  ");
+    //Serial.println(K12);
     calib_flag1 = '1';
+  }
+
+  if(msg_received[0] == 'P'){
+    Serial.print("received message: ");
+    Serial.println(msg_received);
+
+    char* values[10];
+
+    i = 1;
+    int j = 0;
+    int k = -1;
+    while(msg_received[i] != ';'){
+      if(msg_received[i] == " "){
+        j = 0;
+        k++;
+        continue;
+      }
+
+      values[k][j] = msg_received[i];
+      j++;
+      i++;
+    }
+
+    other_Kii = atof(values[0]);
+    other_Kij = atof(values[1]);
+    other_o = atof(values[1]);
+
+    
   }
   
   if(a == 1){
@@ -153,14 +175,21 @@ void LDR_calib(char arduino){
   
   int j = 0;
   int i = 0;
-
-  Serial.println("entrei calib");
   
-  for (j = 1; j < 25; j++){
+  for (j = 0; j < 10; j++){
     i = j;
     
     //apply a 10 increment over the LED actuation 
-    analogWrite(LED, 10*j); //10, 20, 30, 40, 50,..., 250. maximum is 255 
+    analogWrite(LED, 28.33*j); //10, 20, 30, 40, 50,..., 250. maximum is 255 
+
+    if(j == 0 && get_external_luminance){
+      vi = ((analogRead(LDR)*5.0)/1023);
+      my_o = pow(10,-b/m)*pow(((5/vi)-1),1/m);
+
+      get_external_luminance = false;
+
+      Serial.println(my_o);
+    }
     
     vled = ((10.0*j)/255.0)*5.0;
     L = pow(10,-b/m)*pow(((5/vled)-1),1/m);
@@ -170,12 +199,12 @@ void LDR_calib(char arduino){
     //delay
     delay(250);
     sprintf(myConcatenation,"L=%s",charVal);
-    Serial.print(myConcatenation);
+    //Serial.print(myConcatenation);
     
     vi = ((analogRead(LDR)*5.0)/1023);
     Li = pow(10,-b/m)*pow(((5/vi)-1),1/m);
-    Serial.print("  ");
-    Serial.print(Li);
+    //Serial.print("  ");
+    //Serial.print(Li);
     
     if(Wire.available() == 0){ //if nothing is on the bus we can send
       Wire.beginTransmission(address); //get BUS
@@ -184,18 +213,21 @@ void LDR_calib(char arduino){
     }
     
     KK[i] = Li/L;
-    Serial.print("  K11   ");
-    Serial.println(KK[i]); 
+    //Serial.print("  K11   ");
+    //Serial.println(KK[i]); 
     delay(500);
 
   }
   
   analogWrite(LED, 0);
   
-  if(Wire.available()==0){ //if nothing was on the bus we can send
-    Wire.beginTransmission(address); //get BUS
-    Wire.write("D");  //done
-    Wire.endTransmission(); //release BUS
+  while(1){
+    if(Wire.available()==0){ //if nothing was on the bus we can send
+      Wire.beginTransmission(address); //get BUS
+      Wire.write("D");  //done
+      Wire.endTransmission(); //release BUS
+      break;
+    }
   }
   
   for (i = 0; i < 24; i++){
@@ -204,9 +236,26 @@ void LDR_calib(char arduino){
   
   K11 = K11/25;
   
-  Serial.print("K11");
-  Serial.println(K11);
+  //Serial.print("K11");
+  //Serial.println(K11);
   
   calib_flag1 = '2';
+  calib_flag = '2';
+
+  //After calibrate, send a message to the other arduino with our parameters Kii, Kij and oi    
+  dtostrf(K11, 4, 4, charValK11);
+  dtostrf(K12, 4, 4, charValK12);
+  dtostrf(my_o, 4, 4, charValo);
+  
+  sprintf(myConcatenation,"P %s %s %s;",charValK11, charValK12, charValo);
+
+  if(Wire.available() == 0){ //if nothing is on the bus we can send
+    Wire.beginTransmission(address); //get BUS
+    Wire.write(myConcatenation);  
+    Wire.endTransmission(); //release BUS
+  }
+
+  Serial.print("sending message: ");
+  Serial.println(myConcatenation);
   
 }
