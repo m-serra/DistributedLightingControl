@@ -52,15 +52,34 @@ class session
                 
                 if (!ec){
                     printf("Request: %s\n", data_);
-                    do_write(length);
+                    /* PROCESS INFORMATION IN REQUEST
+                     * - mode
+                     * - statistic
+                     */
+                    if(mode == 'm')
+						do_write('m', 0);
+					}
+					else if(mode == 'v'){
+						do_write('v', -1);
+					}
                 }
             });
         }
 
-        void do_write(std::size_t length){
-			printf("WRITEEEEEEE\n");
-            std::string line;
-            data.get_last_sample(data_tuple);
+        void do_write(char mode, int sample){
+			/* mode:
+			 * s: stream
+			 * m: last minute
+			 * v: last value
+			 */
+            
+            if(mode == 'm'){
+				data.get_last_sample(data_tuple);
+			}
+			else if(mode == 'v'){ 
+				data.get_sample_i(data_tuple, sample);
+			}
+			
             sprintf (msg_out, "%d_%d_%d_%d", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
             
             
@@ -71,7 +90,15 @@ class session
                 [this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
-                        do_read();
+						if(mode == 'm' && sample <= data.get_n_samples_minute()){
+							do_write('m', sample + 1)
+						}
+						else if(mode == 's'){
+						
+						}
+						else{
+							do_read();
+						}
                     }
             });
         }
