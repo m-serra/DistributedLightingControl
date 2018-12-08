@@ -222,7 +222,7 @@ void LDR_calib(char arduino){
   analogWrite(LED, 0);
   
   while(1){
-    if(Wire.available()==0){ //if nothing was on the bus we can send
+    if(Wire.available() == 0){ //if nothing was on the bus we can send
       Wire.beginTransmission(address); //get BUS
       Wire.write("D");  //done
       Wire.endTransmission(); //release BUS
