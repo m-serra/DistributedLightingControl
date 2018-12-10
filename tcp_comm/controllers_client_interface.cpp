@@ -36,7 +36,7 @@ int main(int argc, char* argv[]){
     cout << "Created Child Thread 1 # " << t1.get_id() << endl;
     
     thread t2 {run_tcp_server, 17000, ref(data)};
-    cout << "Created Child Thread 2 # " << t2.get_id() << endl;
+    cout << "Created Child Thread 2 # " << t2.get_id() << "\n\n";
     
     t1.join(); //wait until t1 finishes
     t2.join(); //wait until t2 finishes

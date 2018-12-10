@@ -79,7 +79,7 @@ void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 			}
 			
 			sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
-			//printf("\n");
+		
 			data.new_sample(time_stamp, i_meas, i_ref);
 		}
 				

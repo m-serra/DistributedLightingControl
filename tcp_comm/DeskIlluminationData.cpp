@@ -66,7 +66,7 @@ void DeskIlluminationData::get_minute_history(int desk, char *buff){
 	char i_m[max_precision];
 	char i_r[max_precision];
 	char t[max_precision];
-	sprintf(d, "%d ", desk);
+	sprintf(d, "%d_", desk);
 	
 	mtx.lock();
 	for(int i = 0; i <  n_samples_minute; i++){
@@ -79,13 +79,21 @@ void DeskIlluminationData::get_minute_history(int desk, char *buff){
 		}
 		
 		strcat(buff, d);
-		sprintf(t, "%d ", time_stamp[k]);
+		sprintf(t, "%d_", time_stamp[k]);
 		strcat(buff, t);
-		sprintf(i_m, "%d ", i_meas[k]);
+		sprintf(i_m, "%d_", i_meas[k]);
 		strcat(buff, i_m);
-		sprintf(i_r, "%d -", i_ref[k]);
+		
+		//if(i == n_samples_minute - 1)
+			//printf()
+			//sprintf(i_r, "%d\n", i_ref[k]);
+		//else
+		sprintf(i_r, "%d | ", i_ref[k]);
 		strcat(buff, i_r);		
 	}
+	
+	strcat(buff, "\n");
+	
 	mtx.unlock();
 }
 

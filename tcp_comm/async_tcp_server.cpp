@@ -27,7 +27,7 @@ class session
     enum { max_length = 8 };
     char msg_in[max_length];
     char str[max_length];
-    char* msg_out;
+    //char* msg_out;
     char request; //g: current value; s: start/stop stream; b: last minute buffer
     char statistic;
     int data_tuple[3];
@@ -43,7 +43,7 @@ class session
             data(data_)
         {
 			int n_samples_minute = data.get_n_samples_minute();
-			buff = new char [(max_length+1) * n_samples_minute];
+			buff = new char [(max_length+2) * n_samples_minute + 1];
 		}
 
         void start(){
@@ -59,7 +59,7 @@ class session
                 [this, self](boost::system::error_code ec, std::size_t length){
                 
                 if (!ec){
-                    printf("Request: %s\n",msg_in);
+                    printf("Request: %s",msg_in);
                     
                     if(strlen(msg_in) == 1 && strcmp(msg_in, "r") == 0){
 						// Handle reset request
@@ -68,10 +68,10 @@ class session
 						sscanf (msg_in, "%c %c %d", &request, &statistic, &desk);
 						
 						if(request == 'g'){
-							do_write(-1);
+							do_write();
 						}
 						else if(request == 'b'){
-							do_write(0);
+							do_write();
 						}
 						else{
 							printf("Unknown request\n");
@@ -84,26 +84,31 @@ class session
 
 		// instead of char mode I can use the class field request. For now this is less
 		// prone to errors
-        void do_write(int sample){
-
+        void do_write(){
+			
+			char *msg_out;
+			
             if(request == 'g'){
 				data.get_last_sample(data_tuple);
 				sprintf (str, "%d_%d_%d_%d\n", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
-				msg_out = str;
+				msg_out = new char [strlen(str)];
+				strcpy(msg_out, str);
 			}
 			else if(request == 'b'){ 
 				data.get_minute_history(desk, buff);
-				msg_out = buff;
+				msg_out = new char [strlen(buff)];
+				strcpy(msg_out,buff);
 			}
-			     
-            std::cout << "Reply: " << msg_out << "\n\n";
-                
+			  
+            printf("Reply: %s\n", msg_out);
+            int len = strlen(msg_out);
+            
             auto self(shared_from_this());
-            boost::asio::async_write(socket_, boost::asio::buffer(msg_out, max_length),
-                [sample, this, self](boost::system::error_code ec, std::size_t /*length*/){
+            boost::asio::async_write(socket_, boost::asio::buffer(msg_out,len),
+                [msg_out, this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
-						
+						printf("Message sent: %s\n", msg_out);
 						/*if(request == 'b' && sample < data.get_n_samples_minute()){
 							do_write(sample + 1);
 						}
@@ -112,6 +117,7 @@ class session
 						}
 						else{*/
 							//if current value or last value of last minute buffer
+							delete [] msg_out;
 							do_read();
 						/*}*/
                     }
