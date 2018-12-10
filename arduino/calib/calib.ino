@@ -41,11 +41,16 @@ boolean get_external_luminance = true;
 char msg_received[50];
 boolean sent_consensus_parameters = false;
 boolean received_consensus_parameters = false;
+boolean occupancy_state = false;
+//const byte interruptPin = 2;
+String inputString = "";
+bool stringComplete = false;
 
 void setup(){
   Serial.begin(1000000);
   Wire.begin(address); //join as master
   Wire.onReceive(receiveEvent);
+  //attachInterrupt(digitalPinToInterrupt(interruptPin), occupancy, LOW);
   pinMode(LED, OUTPUT);
   pinMode(LDR, INPUT);
 }
@@ -86,7 +91,23 @@ void loop(){
       }
       end_calib = '2';
     }
+
+    if(stringComplete){
+      Serial.println("recebi uma sring");
+      if (inputString == "o\n"){
+        //occupied
+        
+        occupancy_state = true;
+      }else if(inputString == "e\n"){
+        //empty
+
+        occupancy_state = false;
+      }
+      stringComplete = false;
+      inputString = "";
+    }
   }
+  
 }
 
 void CALI(){
@@ -288,11 +309,15 @@ void send_parameters(){
 
   Serial.println(my_o);
   Serial.println(other_o);
+
+  float K11_aux = K11;
+  float K12_aux = K12;
+  float my_o_aux = my_o;
   
   //After calibrate, send a message to the other arduino with our parameters Kii, Kij and oi    
-  dtostrf(K11, 4, 4, charValK11);
-  dtostrf(K12, 4, 4, charValK12);
-  dtostrf(my_o, 4, 4, charValo);
+  dtostrf(K11_aux, 4, 4, charValK11);
+  dtostrf(K12_aux, 4, 4, charValK12);
+  dtostrf(my_o_aux, 4, 4, charValo);
   
   sprintf(myConcatenation,"P %s %s %s;",charValK11, charValK12, charValo);
 
@@ -313,4 +338,31 @@ void send_parameters(){
   sent_consensus_parameters = true;
 }
 
+/*
+void occupancy(){
+  occupancy_state = !occupancy_state;
 
+  if(occupancy_state){Serial.println("occupied!");}
+  else{Serial.println("free!");}
+
+ 
+   identify which arduino am I
+   if occuppancy_state = false: send message to the other arduino saying my occupancy level is '0' which corresponds to an L of... 30LUX?
+   if occupancy_state = true: send message to the other arduino saying that my occupancy level if '1' which corresponds to an L of...70LUX?
+  
+   
+}*/
+
+void serialEvent(){
+
+    while(Serial.available()){
+        
+        char inChar = (char)Serial.read();
+        
+        inputString += inChar;
+      
+        if (inChar == '\n') {
+            stringComplete = true;
+        }
+    }
+}

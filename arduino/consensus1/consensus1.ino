@@ -69,7 +69,7 @@ void loop() {
       Serial.print("  ");
       Serial.print(node1.d[1],4);
       Serial.print("  ");
-      Serial.println(cost1);
+      Serial.println(cost1);L
   
       //node 2 selfish problem solution
       cost2 = primal_solve(&node2, rho);
@@ -88,8 +88,8 @@ void loop() {
       update_lagrangian(&node1, rho);
       update_lagrangian(&node2, rho);
 
-      first = false;
     }
+    first = false;
   }
 
 }
@@ -273,4 +273,3 @@ int check_feasibility(node _node, double* d){
 double evaluate_cost(node _node, double* d, double rho){
   return (_node.c*d[_node.index-1] + (_node.y[0]*(d[0] - _node.d_av[0]) + _node.y[1]*(d[1] - _node.d_av[1])) + (rho/2.0)*(pow(d[0]-_node.d_av[0],2)+pow(d[1]-_node.d_av[1],2)));
 }
-
