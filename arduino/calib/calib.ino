@@ -4,6 +4,10 @@
 #define LED 3
 #define MEAN_ACQ 5
 #define euler 2.718281828
+
+
+
+
 byte error;
 byte addr;
 int nDevices = 0;
