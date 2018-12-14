@@ -78,7 +78,8 @@ void setup(){
   //Do the initial calibration
   CALI();
   
-  if(sent_consensus_parameters && received_consensus_parameters){
+  while(!received_consensus_parameters){;}
+  
     
     //Initialize consensus
     consensus_initialization();
@@ -199,7 +200,7 @@ void setup(){
         update_lagrangian(&node2, rho);
       }
     }
-  }
+  
 }
 
 void loop(){
@@ -221,10 +222,10 @@ void loop(){
       optimal_d2 = node2.d[1]; //optimal dimming level for arduino 2, found by arduino 1
     }
   
-    Serial.print("optimal_d1:  ");
-    Serial.print(optimal_d1);
-    Serial.print("  optimal_d2:  ");
-    Serial.println(optimal_d2);
+//    Serial.print("optimal_d1:  ");
+//    Serial.print(optimal_d1);
+//    Serial.print("  optimal_d2:  ");
+//    Serial.println(optimal_d2);
       
     if((micros() - t_start_cycle)*pow(10,-6) < Ts){ delay(Ts - (micros() - t_start_cycle)*pow(10,-6)); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
     else{Serial.println((micros() - t_start_cycle)*pow(10,-6));} //prints the time that the cycle took
