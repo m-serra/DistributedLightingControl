@@ -6,43 +6,19 @@
 #define euler 2.718281828
 
 //Control variables
-double avg_read = 0.0; //from 0 to 1023
-double pi_i = 0.0;
-double pi_p = 0.0;
-double vin = 0.0;
-double vf = 0.0;
-double t = 0.0;
-double ti = 0.0;
-double tau = 0.0; //0.013
-double vt = 0.0;
-double l = 0.0;
-double Lu = 0.0;
-double feedforward_term = 0.0;
-double feedback_term = 0.0;
-double gain = 0.0;
-double e = 0.0;
-double pi_Kp = 0.5;
-double pi_Ki = 13.5; //Ki=13.5
-double pi_K1 = pi_Kp*1; //b=1
-double Ts = 0.015;
-double pi_K2 = pi_Kp*pi_Ki*Ts/2;
-double vldr = 0.0;
-double input = 0.0;
-double i_ant = 0.0; 
-double e_ant = 0.0;
-double sum = 0.0;
-double K_windup = 1.5;
-int j=0;
-int r1 = 10; //kOhm
-double r_ldr = 0.0;
-double lux = 0.0;
+//from 0 to 1023
+double avg_read = 0.0, pi_i = 0.0, pi_p = 0.0, vin = 0.0, vf = 0.0, t = 0.0,
+       ti = 0.0, tau = 0.0 /*0.013*/, vt = 0.0, l = 0.0, Lu = 0.0, 
+       feedforward_term = 0.0, feedback_term = 0.0, gain = 0.0, e = 0.0,
+       pi_Kp = 0.5, pi_Ki = 13.5, pi_K1 = pi_Kp*1 /*b=1*/, Ts = 0.015,
+       pi_K2 = pi_Kp*pi_Ki*Ts/2, vldr = 0.0, input = 0.0, i_ant = 0.0,
+       e_ant = 0.0, sum = 0.0, K_windup = 1.5, r_ldr = 0.0, lux = 0.0;
+int j = 0, r1 = 10; //kOhm
+
 
 //Exceed variables
-volatile boolean E_flag = false;
-volatile boolean E_flag1 = true;
-double o_err = 0.0;
-double other_input = 0.0;
-double other_Lu = 0.0;
+volatile boolean E_flag = false, E_flag1 = true;
+double o_err = 0.0, other_input = 0.0, other_Lu = 0.0;
 
 //I2C Scanner variables
 double prev_time=0.0;
@@ -50,8 +26,7 @@ byte error, addr;
 volatile int nDevices = 0, Recalibrate = 0, incomingByte;
 
 //Occupancy button variables
-volatile boolean occupancy_state = false;
-volatile boolean occupancy_state_prev = false;
+volatile boolean occupancy_state = false, occupancy_state_prev = false;
 const byte interruptPin = 2;
 volatile int buttonState = 0;
 
@@ -124,8 +99,6 @@ void setup(){
   //Run consensus to get the initial optimal dimming level 
   consensus_initialization();
 
-  
-  
 }
 
 void loop(){
@@ -141,6 +114,8 @@ void loop(){
     if(consensus_iter == 50){
       E_flag1 = true;
       received_consensus_parameters = false;
+      E_flag = false;
+      
       consensus_iter = 0;
 
       //After running consensus for consensus_iter, the optimal d for all arduinos has been found
@@ -161,6 +136,8 @@ void loop(){
     
         //Final desired value for the voltage in volts
         l = optimal_d1*node1.k[0]+optimal_d2*node1.k[1]+node1.o;
+        Serial.print("CHANGED REFERENCE TO:  ");
+        Serial.println(l);
         vf = (5/(nthroot(l/pow(10,-b/m),1/m)+1));
         
         //Initial voltage read by the LDR (before the step to the reference value)
@@ -266,47 +243,57 @@ void loop(){
        Lu=pow(10,-b/m)*pow(((5/vldr)-1),1/m);
        
       //Prints
-      Serial.print(input);
-      Serial.print("\t");
-      Serial.print(vldr);
-      Serial.print("\t");
-      Serial.print(o_err);
-      Serial.print("\t");
-      Serial.println(Lu);
+      //Serial.print(input);
+      //Serial.print("\t");
+      //Serial.print(vldr);
+      //Serial.print("\t");
+      //Serial.print(o_err);
+      //Serial.print("\t");
+      //Serial.println(Lu);
 
       //y_ant = vldr;
       i_ant = pi_i;
       e_ant = e;
 
-      if (arduino == '1' && E_flag1){
+      if (arduino == '1' && E_flag1 && !E_flag){
+        
         dtostrf(input, 4, 4, charValiter);
         dtostrf(Lu, 4, 4, charVald1);
-        //dtostrf(_nodee->d[1], 4, 4, charVald2);
         sprintf(myConcatenation,"R %s %s;", charValiter, charVald1);
-        send_message(myConcatenation);
         
+        //Serial.print("sending rpi message: ");
+        //Serial.println(myConcatenation);
+        send_message(myConcatenation);
 
-        while(!receive_data){;}
+        while(!receive_data){if(node_updated){break;}}
         receive_data = false;
 
-        my_o=(Lu)-((pow(10,-b/m)*pow(((5/input)-1),1/m))*node1.k[0] + (pow(10,-b/m)*pow(((5/other_input)-1),1/m))*node1.k[1]);
+        my_o = Lu-((pow(10,-b/m)*pow(((5/input)-1),1/m)) + (pow(10,-b/m)*pow(((5/other_input)-1),1/m)));
         o_err = abs(my_o - node1.o);
       }
-      else if (arduino == '2' && E_flag1){
-        
+      else if (arduino == '2' && E_flag1 && !E_flag){
+
         dtostrf(input, 4, 4, charValiter);
         dtostrf(Lu, 4, 4, charVald1);
-        //dtostrf(_nodee->d[1], 4, 4, charVald2);
         sprintf(myConcatenation,"R %s %s;", charValiter, charVald1);
                 
-        while(!receive_data){;}
+        while(!receive_data){ if(node_updated){break;}}
         receive_data = false;
+
+        //Serial.print("sending rpi message: ");
+        //Serial.println(myConcatenation);
         send_message(myConcatenation);
 
-        my_o=(Lu)-((pow(10,-b/m)*pow(((5/input)-1),1/m))*node2.k[1] + (pow(10,-b/m)*pow(((5/other_input)-1),1/m))*node2.k[0]);
+        my_o = Lu-((pow(10,-b/m)*pow(((5/input)-1),1/m)) + (pow(10,-b/m)*pow(((5/other_input)-1),1/m)));
         o_err = abs(my_o - node2.o);
       }
-      
+
+      //Serial.print("Lu  ");
+      //Serial.print(Lu);
+      //Serial.print("  my_o  ");
+      //Serial.print(my_o);
+      //Serial.print("  o_err  ");
+      //Serial.println(o_err);
       
       if(E_flag && E_flag1){
         
@@ -323,19 +310,19 @@ void loop(){
   
           other_o = (other_Lu)-((pow(10,-b/m)*pow(((5/other_input)-1),1/m))*node1.k[0] + (pow(10,-b/m)*pow(((5/input)-1),1/m))*node1.k[1]);
           node2.o = my_o;
-          node2.o = other_o;
+          node1.o = other_o;
           }
         E_flag1 = false;
         E_flag = false;
       
       }
-      if ((o_err > 30) && E_flag1){
-        Serial.println("Entrei ..");
+      if ((o_err > 100) && E_flag1){
         E_flag = true;
         send_message("E");
       }
       }
-          
+
+    
     if((micros() - t_start_cycle)*pow(10,-6) < Ts){ delay((Ts - (micros() - t_start_cycle)*pow(10,-6))*1000); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
     //else{Serial.println((micros() - t_start_cycle)*pow(10,-6));} //prints the time that the cycle took
     else{Serial.println(Ts-(micros()*pow(10,-6) - t_start_cycle*pow(10,-6)),6);}
@@ -1244,8 +1231,8 @@ void consensus_1iter(boolean first, node * _node, node * _nodee){
     //Store the time at which the cycle begins
     t_start_cycle_consensus = micros();
   
-//    Serial.print("iteration:  ");
-//    Serial.println(consensus_iter);
+    Serial.print("iteration:  ");
+    Serial.println(consensus_iter);
     
     if(arduino == '1'){
       
@@ -1289,13 +1276,7 @@ void consensus_1iter(boolean first, node * _node, node * _nodee){
       
       
       send_message(myConcatenation);
-      if(consensus_iter%2 == 0){
-        prev_time = micros();
-      }
-      if(consensus_iter%2 == 1){
-        Serial.print("Time interval between consecutive sends:  ");
-        Serial.println((micros()-prev_time)*pow(10,-6),4);
-      }
+
 
       //Wait until I receive proposed solution from arduino 2
       //Update node2 with the d's that arduino 2 sent to me (done in the receiveEvent)
@@ -1353,13 +1334,6 @@ void consensus_1iter(boolean first, node * _node, node * _nodee){
       Serial.println(myConcatenation);
     
       send_message(myConcatenation);
-      if(consensus_iter%2 == 0){
-        prev_time = micros();
-      }
-      if(consensus_iter%2 == 1){
-        Serial.print("Time interval between consecutive sends:  ");
-        Serial.println((micros()-prev_time)*pow(10,-6),4);
-      }
       
       //Compute my average d_av and update my node node1, using the updated node2
       compute_average(_nodee, *_node);
