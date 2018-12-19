@@ -5,17 +5,6 @@
 #define MEAN_ACQ 5
 #define euler 2.718281828
 
-
-//I2C Scanner variables
-byte error, addr;
-volatile int nDevices = 0, Recalibrate = 0, incomingByte;
-
-//Occupancy button variables
-volatile boolean occupancy_state = false;
-volatile boolean occupancy_state_prev = false;
-const byte interruptPin = 2;
-volatile int buttonState = 0;
-
 //Consensus variables
 struct node{
   int index;
@@ -30,260 +19,283 @@ struct node{
   int L; 
 };
 
-node node1, node2;
-double cost1, cost2;
-volatile int my_L = 10, other_L = 10, consensus_iter = 2,
-             consensus_iter_aux = 0; //10LUX is the reference lower bound for our empty desks
-volatile float o1, o2;
-const int c1 = 1, c2 = 1, c[2] = {c1, c2};
-volatile float o[2] = {0.0,0.0}, K[2][2] = {{0.0,0.0},{0.0,0.0}};
+node node1;
+node node2;
+double cost1;
+double cost2;
+const int L1 = 10; //10LUX is the reference lower bound for our empty desks
+const int L2 = 10;
+volatile float o1;
+volatile float o2;
+const int c1 = 1;
+const int c2 = 1;
+const int c[2] = {c1, c2};
+volatile float o[2] = {0.0,0.0};
+volatile float K[2][2] = {{0.0,0.0},{0.0,0.0}};
 const double rho = 0.07;
-volatile double d1[2] = {0,0}, d2[2] = {0,0};
+volatile double d1[2] = {0,0};
+volatile double d2[2] = {0,0};
+volatile int consensus_iter = 2;
 volatile boolean node_updated = false;
-volatile double optimal_d1 = 0.0, optimal_d2 = 0.0;
+volatile double optimal_d1 = 0.0;
+volatile double optimal_d2 = 0.0;
+volatile int consensus_iter_aux = 0;
 
 
 //Calibration variables
-volatile double f = 1.0, Vread = 0.0, L = 0.0, vi = 0.0, Li = 0.0, vled;
-volatile float my_Kii = 0.0, my_Kij = 0.0, my_o = 0.0, other_Kii = 0.0, 
-               other_Kij = 0.0, other_o = 0.0;
-volatile char charVal[10], charValmy_Kii[10], charValmy_Kij[10], 
-              charVald1[10], charVald2[10], charValo[10], charValiter[10],
-              init_flag ='0', calib_flag1 = '0', calib_flag2 = '0',
-              arduino = '0', other_arduino = '0', end_calib = '0';
-volatile double KK[25], K2[24], t_start_cycle = 0.0;
-volatile int p = 0, a = 1;
-char myConcatenation[20],  msg_received[50];
+volatile double f = 1.0;
+volatile float my_Kii = 0.0;
+volatile float my_Kij = 0.0;
+volatile float my_o = 0.0;
+volatile float other_Kii = 0.0;
+volatile float other_Kij = 0.0;
+volatile float other_o = 0.0;
+volatile double K2[24];
+volatile char charVal[10];
+volatile char charValmy_Kii[10];
+volatile char charValmy_Kij[10];
+volatile char charVald1[10];
+volatile char charVald2[10];
+volatile char charValo[10];
+volatile char charValiter[10];
+volatile double KK[25];
+volatile int p = 0;
+volatile double vled;
+volatile double Vread = 0.0;
+volatile double L = 0.0;
+volatile double vi = 0.0;
+volatile double Li = 0.0;
 const double m = -0.7343; // -0.6789; //-0.5421;
 const double b = 0.7052; //1.86; // 1.4390;
-const double Ts = 0.01;
 const int address = 0x48; //broadcast
+volatile double t_start_cycle = 0.0;
+const double Ts = 0.01;
+volatile char init_flag ='0';
+volatile char calib_flag1 = '0';
+volatile char calib_flag2 = '0';
+volatile int a = 1;
+volatile char arduino = '0';
+volatile char other_arduino = '0';
+volatile char end_calib = '0';
+char myConcatenation[20];
+volatile boolean get_external_luminance = true;
+char msg_received[50];
+volatile boolean sent_consensus_parameters = false;
+volatile boolean received_consensus_parameters = false;
+volatile boolean occupancy_state = false;
+//const byte interruptPin = 2;
+volatile String inputString = "";
+volatile bool stringComplete = false;
 
-volatile boolean get_external_luminance = true, sent_consensus_parameters = false,
-                 received_consensus_parameters = false, first = true;
-
+volatile boolean first = true;
 
 void setup(){
   Serial.begin(1000000);
   
   Wire.begin(address); //join as master
   Wire.onReceive(receiveEvent);
-
-  //Occupancy button
-  attachInterrupt(0, button_pressed, RISING);
   
   pinMode(LED, OUTPUT);
   pinMode(LDR, INPUT);
-
-  //Do the initial calibration
-  CALI();
-  
-  while(!received_consensus_parameters){;}
-  
-    
-    //Initialize consensus
-    consensus_initialization();
-  
-    //For debug only
-    print_node_info(node1, node2);
-  
-    for(consensus_iter = 0; consensus_iter < 50; consensus_iter++){
-      Serial.print("iteration:  ");
-      Serial.println(consensus_iter);
-      
-      if(arduino == '1'){
-        if(end_calib == '1'){
-          Serial.print("K11:  ");
-          Serial.print(my_Kii,4);
-          Serial.print("  K12:  ");
-          Serial.print(my_Kij,4);
-          Serial.print("  K21:  ");
-          Serial.print(other_Kij,4);
-          Serial.print("  K22:  ");
-          Serial.print(other_Kii,4);
-          Serial.print("  o1:  ");
-          Serial.print(my_o,4);
-          Serial.print("  o2:  ");
-          Serial.println(other_o,4);
-  
-          end_calib = '2';
-        }
-        
-        //solve node 1 selfish problem
-        cost1 = primal_solve(&node1, rho);
-    
-        //print arduino 1 solution for the dimming level d of arduino 1
-        //Serial.print(node1.d[0],4);
-        //Serial.print("  ");
-        //print arduino 1 solution for the dimming level d of arduino 2
-        //Serial.print(node1.d[1],4);
-        //Serial.print("  ");
-        //print the cost of the solution found by arduino 1
-        //Serial.println(cost1);
-  
-        //Send my proposed solution to arduino 2
-        dtostrf(consensus_iter, 4, 4, charValiter);
-        dtostrf(node1.d[0], 4, 4, charVald1);
-        dtostrf(node1.d[1], 4, 4, charVald2);
-  
-        sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
-      
-        Serial.print("sending message: ");
-        Serial.println(myConcatenation);
-      
-        send_message(myConcatenation);
-  
-        //Wait until I receive proposed solution from arduino 2
-        //Update node2 with the d's that arduino 2 sent to me (done in the receiveEvent)
-        while (!node_updated){;}
-        node_updated = false;
-        
-        //Compute my average d_av and update my node node1, using the updated node2
-        compute_average(&node1, node2);
-  
-        //Update local lagrangians
-        update_lagrangian(&node1, rho);
-        
-      }else if(arduino == '2'){
-        
-        if(end_calib == '1'){
-          Serial.print("K11:  ");
-          Serial.print(other_Kii,4);
-          Serial.print("  K12:  ");
-          Serial.print(other_Kij,4);
-          Serial.print("  K21:  ");
-          Serial.print(my_Kij,4);
-          Serial.print("  K22:  ");
-          Serial.print(my_Kii,4);
-          Serial.print("  o1:  ");
-          Serial.print(other_o,4);
-          Serial.print("  o2:  ");
-          Serial.println(my_o,4);
-  
-          end_calib = '2';
-        }
-        
-        //solve node 2 selfish problem 
-        cost2 = primal_solve(&node2, rho);
-  
-        //print arduino 2 solution for the dimming level d of arduino 1
-        //Serial.print(node2.d[0],4);
-        //Serial.print("  ");
-        //print arduino 2 solution for the dimming level d of arduino 2
-        //Serial.print(node2.d[1],4);
-        //Serial.print("  ");
-        //print the cost of the solution found by arduino 2
-        //Serial.println(cost2);
-  
-        //Send my proposed solution to arduino 1
-        dtostrf(consensus_iter, 4, 4, charValiter);
-        dtostrf(node2.d[0], 4, 4, charVald1);
-        dtostrf(node2.d[1], 4, 4, charVald2);
-  
-        sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
-      
-        Serial.print("sending message: ");
-        Serial.println(myConcatenation);
-      
-        send_message(myConcatenation);
-  
-       
-        //Wait until I receive proposed solution from arduino 1         
-        //Update node1 with the d's that arduino 1 sent to me
-        while (!node_updated){;}
-        node_updated = false;
-        
-        //Compute my average d_av and update my node node1, using the updated node2
-        compute_average(&node2, node1);
-  
-        //Update local lagrangians
-        update_lagrangian(&node2, rho);
-      }
-    }
-  
 }
 
 void loop(){
-  
+  if ((micros() - t_start_cycle)*pow(10,-6) >= Ts){
+    
     //Store the time at which the cycle begins
     t_start_cycle = micros();
+
+    if(first){
+      //Do the initial calibration
+      CALI();
   
-    if(occupancy_state != occupancy_state_prev){
-      occupancy_state_prev = occupancy_state;
-      send_occupancy_state();
-    }
-      
-    //After running consensus for consensus_iter, the optimal d for all arduinos has been found
-    if(arduino == '1'){
-      optimal_d1 = node1.d[0]; //optimal dimming level for arduino 1, found by arduino 1
-      optimal_d2 = node1.d[1]; //optimal dimming level for arduino 2, found by arduino 1
-    }else if(arduino == '2'){
-      optimal_d1 = node2.d[0]; //optimal dimming level for arduino 1, found by arduino 1
-      optimal_d2 = node2.d[1]; //optimal dimming level for arduino 2, found by arduino 1
-    }
-  
-//    Serial.print("optimal_d1:  ");
-//    Serial.print(optimal_d1);
-//    Serial.print("  optimal_d2:  ");
-//    Serial.println(optimal_d2);
-      
-    if((micros() - t_start_cycle)*pow(10,-6) < Ts){ delay(Ts - (micros() - t_start_cycle)*pow(10,-6)); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
-    else{Serial.println((micros() - t_start_cycle)*pow(10,-6));} //prints the time that the cycle took
+      if(sent_consensus_parameters && received_consensus_parameters){
+        //Initialize consensus
+        consensus_initialization();
+
+        //For debug only
+        print_node_info(node1, node2);
     
+        for(consensus_iter = 0; consensus_iter < 50; consensus_iter++){
+          Serial.print("iteration:  ");
+          Serial.println(consensus_iter);
+          
+          if(arduino == '1'){
+            if(end_calib == '1'){
+              Serial.print("K11:  ");
+              Serial.print(my_Kii,4);
+              Serial.print("  K12:  ");
+              Serial.print(my_Kij,4);
+              Serial.print("  K21:  ");
+              Serial.print(other_Kij,4);
+              Serial.print("  K22:  ");
+              Serial.print(other_Kii,4);
+              Serial.print("  o1:  ");
+              Serial.print(my_o,4);
+              Serial.print("  o2:  ");
+              Serial.println(other_o,4);
+  
+              end_calib = '2';
+            }
+            
+            //solve node 1 selfish problem
+            cost1 = primal_solve(&node1, rho);
+        
+            //print arduino 1 solution for the dimming level d of arduino 1
+            //Serial.print(node1.d[0],4);
+            //Serial.print("  ");
+            //print arduino 1 solution for the dimming level d of arduino 2
+            //Serial.print(node1.d[1],4);
+            //Serial.print("  ");
+            //print the cost of the solution found by arduino 1
+            //Serial.println(cost1);
+      
+            //Send my proposed solution to arduino 2
+            dtostrf(consensus_iter, 4, 4, charValiter);
+            dtostrf(node1.d[0], 4, 4, charVald1);
+            dtostrf(node1.d[1], 4, 4, charVald2);
+    
+            sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
+          
+            Serial.print("sending message: ");
+            Serial.println(myConcatenation);
+          
+            send_message(myConcatenation);
+    
+            //Wait until I receive proposed solution from arduino 2
+            //Update node2 with the d's that arduino 2 sent to me (done in the receiveEvent)
+            while (!node_updated){;}
+            node_updated = false;
+            
+            //Compute my average d_av and update my node node1, using the updated node2
+            compute_average(&node1, node2);
+      
+            //Update local lagrangians
+            update_lagrangian(&node1, rho);
+            
+          }else if(arduino == '2'){
+            
+            if(end_calib == '1'){
+              Serial.print("K11:  ");
+              Serial.print(other_Kii,4);
+              Serial.print("  K12:  ");
+              Serial.print(other_Kij,4);
+              Serial.print("  K21:  ");
+              Serial.print(my_Kij,4);
+              Serial.print("  K22:  ");
+              Serial.print(my_Kii,4);
+              Serial.print("  o1:  ");
+              Serial.print(other_o,4);
+              Serial.print("  o2:  ");
+              Serial.println(my_o,4);
+  
+              end_calib = '2';
+            }
+            
+            //solve node 2 selfish problem 
+            cost2 = primal_solve(&node2, rho);
+      
+            //print arduino 2 solution for the dimming level d of arduino 1
+            //Serial.print(node2.d[0],4);
+            //Serial.print("  ");
+            //print arduino 2 solution for the dimming level d of arduino 2
+            //Serial.print(node2.d[1],4);
+            //Serial.print("  ");
+            //print the cost of the solution found by arduino 2
+            //Serial.println(cost2);
+      
+            //Send my proposed solution to arduino 1
+            dtostrf(consensus_iter, 4, 4, charValiter);
+            dtostrf(node2.d[0], 4, 4, charVald1);
+            dtostrf(node2.d[1], 4, 4, charVald2);
+    
+            sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
+          
+            Serial.print("sending message: ");
+            Serial.println(myConcatenation);
+          
+            send_message(myConcatenation);
+  
+           
+            //Wait until I receive proposed solution from arduino 1         
+            //Update node1 with the d's that arduino 1 sent to me
+            while (!node_updated){;}
+            node_updated = false;
+            
+            //Compute my average d_av and update my node node1, using the updated node2
+            compute_average(&node2, node1);
+      
+            //Update local lagrangians
+            update_lagrangian(&node2, rho);
+          }
+        }
+        
+        first = false;
+        //After running consensus for consensus_iter, the optimal d for all arduinos has been found
+        if(arduino == '1'){
+          optimal_d1 = node1.d[0]; //optimal dimming level for arduino 1, found by arduino 1
+          optimal_d2 = node1.d[1]; //optimal dimming level for arduino 2, found by arduino 1
+        }else if(arduino == '2'){
+          optimal_d1 = node2.d[0]; //optimal dimming level for arduino 1, found by arduino 1
+          optimal_d2 = node2.d[1]; //optimal dimming level for arduino 2, found by arduino 1
+        }
+    
+        Serial.print("optimal_d1:  ");
+        Serial.print(optimal_d1);
+        Serial.print("  optimal_d2:  ");
+        Serial.println(optimal_d2);
+    
+        //Send values??? what for...
+      }
+      
+    }
+  }
 }
-
-
-
 
 void CALI(){
   
-  while (end_calib == '0'){
-   
-    //if(nDevices == 0 && a == 1) INIT();
-    
-    //if (nDevices > 0){
+  while (end_calib == '0'){ 
 
-      if(a == 1){
-        send_message("1");
-      }
+    if(a == 1){
+      send_message("1");
+    }
+    
+    delay(100);
+    a = 2;
+
+    if (init_flag == '1'){
+      arduino = '2';
+      other_arduino = '1';
+      Serial.print("Arduino");
+      Serial.println(arduino);
+      init_flag = '2';
       
-      delay(100);
-      a = 2;
-  
-      if (init_flag == '1'){
-        arduino = '2';
-        other_arduino = '1';
-        Serial.print("Arduino");
-        Serial.println(arduino);
-        init_flag = '2';
-        
-      }else if(init_flag == '0'){
-        arduino = '1';
-        other_arduino = '2';
-        Serial.print("Arduino");
-        Serial.println(arduino);
-        init_flag = '2';
-        
-      }
-  
-      if (arduino == '1' && calib_flag1 == '0'){
-        LDR_calib(1);
-        Serial.println("eu sou o 1 e eu acabei a minha calibração");
-        calib_flag1 = '1';
-      }
+    }else if(init_flag == '0'){
+      arduino = '1';
+      other_arduino = '2';
+      Serial.print("Arduino");
+      Serial.println(arduino);
+      init_flag = '2';
       
-      if (arduino == '2' && calib_flag1 == '1' && calib_flag2 == '0'){
-        LDR_calib(2);
-        send_message("DD");
-        Serial.println("eu sou o 2 e eu acabei a minha calibração");
-        calib_flag2 = '1';      
-      }
-  
-      if (calib_flag1 == '1' && calib_flag2 == '1'){
-        send_parameters();
-        end_calib = '1';
-      }
-    //}
+    }
+
+    if (arduino == '1' && calib_flag1 == '0'){
+      LDR_calib(1);
+      Serial.println("eu sou o 1 e eu acabei a minha calibração");
+      calib_flag1 = '1';
+    }
+    
+    if (arduino == '2' && calib_flag1 == '1' && calib_flag2 == '0'){
+      LDR_calib(2);
+      send_message("DD");
+      Serial.println("eu sou o 2 e eu acabei a minha calibração");
+      calib_flag2 = '1';      
+    }
+
+    if (calib_flag1 == '1' && calib_flag2 == '1'){
+      send_parameters();
+      end_calib = '1';
+    }
   }
 }
 
@@ -329,20 +341,6 @@ void receiveEvent(int howMany){
     //Serial.print("my_Kij  ");
     //Serial.println(my_Kij);
     calib_flag1 = '1';
-  }
-
-  if(msg_received[0] == 'O'){
-
-    //Just to check
-    if(msg_received[1] == other_arduino){
-      
-      if(msg_received[2] == '0'){ //other arduino changed the state from occupied to free
-        other_L = 10; //FREE -> 10 lux
-      }else if(msg_received[4] == '1'){ //other arduino changed the state from free to occupied
-        other_L = 50; //OCCUPIED -> 50 lux
-      }
-      
-    }
   }
 
   if(msg_received[0] == 'P'){
@@ -406,11 +404,8 @@ void receiveEvent(int howMany){
   
   if(a == 1){
     init_flag = msg_received[0];
-    //nDevices = 1;
     a = 2;
   } 
-
-  //if(msg_received[0] == 'P') Recalibrate = 1;
       
 }
 
@@ -507,12 +502,12 @@ void consensus_initialization(){
     //Node 1 initialization
     node1 = {1, {0,0}, {0,0}, {0,0}, {my_Kii, my_Kij}, 
             pow(my_Kii,2) + pow(my_Kij,2), pow(my_Kij,2),
-            c1, o1, my_L};
+            c1, o1, L1};
   
     //Node 2 initialization
     node2 = {2, {0,0}, {0,0}, {0,0}, {other_Kij, other_Kii}, 
             pow(other_Kij,2) + pow(other_Kii,2), pow(other_Kij,2),
-            c2, o2, other_L};
+            c2, o2, L2};
             
   }else if(arduino == '2'){
     K[0][0] = other_Kii;
@@ -527,12 +522,12 @@ void consensus_initialization(){
     //Node 1 initialization
     node1 = {1, {0,0}, {0,0}, {0,0}, {other_Kii, other_Kij}, 
             pow(other_Kii,2) + pow(other_Kij,2), pow(other_Kij,2),
-            c1, o1, other_L};
+            c1, o1, L1};
   
     //Node 2 initialization
     node2 = {2, {0,0}, {0,0}, {0,0}, {my_Kij,my_Kii}, 
             pow(my_Kij,2) + pow(my_Kii,2), pow(my_Kij,2),
-            c2, o2, my_L};
+            c2, o2, L2};
   }
   
 }
@@ -795,82 +790,4 @@ int check_feasibility(node _node, double* d){
 
 double evaluate_cost(node _node, double* d, double rho){
   return (_node.c*d[_node.index-1] + (_node.y[0]*(d[0] - _node.d_av[0]) + _node.y[1]*(d[1] - _node.d_av[1])) + (rho/2.0)*(pow(d[0]-_node.d_av[0],2)+pow(d[1]-_node.d_av[1],2)));
-}
-
-/********************************************************************
-  Function to change occupancy state when the button is pressed,
-  it also changes the reference lower bound (L1 or L2, depending if
-  it's arduino 1 or 2) and sends a message to the I2C bus to notify
-  the other arduino that my L has changed (and also the RPI)
-*********************************************************************/
-
-void button_pressed(){
-    //Change in occupancy state!
-    occupancy_state = !occupancy_state;       
-}
-
-void send_occupancy_state(){
-  
-    if(occupancy_state){
-            
-      if(arduino == '1') send_message("O11");
-      else if(arduino == '2') send_message("O21");
-
-      my_L = 50; //OCCUPIED -> 50 lux
-      
-    }
-    else{
-      
-      if(arduino == '1') send_message("O10");
-      else if(arduino == '2') send_message("O20");
-
-      my_L = 10; //FREE -> 10 lux
-    }
-}
-
-/********************************************************************
-  Function to check how many devices are connected to the I2C network
-  It's used to only start the calibration after detecting that the 
-  other arduino is connected to the I2C bus.
-*********************************************************************/
-
-void INIT(){
-  Serial.println("Scanning...");
- 
-  nDevices = 0;
-  for(addr = 1; addr < 127; addr++ )
-  {
-    // The i2c_scanner uses the return value of the Write.endTransmisstion 
-    // to see if a device did acknowledge to the address.
-    if(Wire.available() == 0){
-      Wire.beginTransmission(addr);
-      Wire.write("1");
-      error = Wire.endTransmission();
-    }
-    
-    if (error == 0)
-    {
-      //Print message
-      Serial.print("I2C device found at address 0x");
-      if (addr < 16) Serial.print("0");
-      Serial.print(addr, HEX);
-      Serial.println("  !");
- 
-      nDevices++;
-      
-    }else if (error == 4)
-    {
-      //Print message
-      Serial.print("Unknown error at address 0x");
-      if (addr < 16) Serial.print("0");
-      Serial.println(addr,HEX);
-      
-    } 
-       
-  }
-  
-  if (nDevices == 0)
-    Serial.println("No I2C devices found\n");
-  else
-    Serial.println("done\n");
 }

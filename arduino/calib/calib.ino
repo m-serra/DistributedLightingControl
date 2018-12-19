@@ -5,6 +5,14 @@
 #define MEAN_ACQ 5
 #define euler 2.718281828
 
+
+
+
+byte error;
+byte addr;
+int nDevices = 0;
+int Recalibrate = 0;
+int incomingByte;
 double f = 1.0;
 float K11 = 0.0;
 float K12 = 0.0;
@@ -59,8 +67,9 @@ void loop(){
   if ((micros() - t_start_cycle)*pow(10,-6) >= Ts){
     //Store the time at which the cycle begins
     t_start_cycle = micros();
-    CALI();
-    if(sent_consensus_parameters && received_consensus_parameters && end_calib == '1'){
+    CALI();       
+
+   if(sent_consensus_parameters && received_consensus_parameters && end_calib == '1'){
       if(arduino == '1'){
         Serial.print("K11:  ");
         Serial.print(K11,4);
@@ -90,78 +99,126 @@ void loop(){
         Serial.println(my_o,4);
       }
       end_calib = '2';
+
+     
     }
 
-    if(stringComplete){
-      Serial.println("recebi uma sring");
-      if (inputString == "o\n"){
-        //occupied
-        
-        occupancy_state = true;
-      }else if(inputString == "e\n"){
-        //empty
-
-        occupancy_state = false;
-      }
-      stringComplete = false;
-      inputString = "";
-    }
+//    if(stringComplete){
+//      Serial.println("recebi uma sring");
+//      if (inputString == "o\n"){
+//        //occupied
+//        
+//        occupancy_state = true;
+//      }else if(inputString == "e\n"){
+//        //empty
+//
+//        occupancy_state = false;
+//      }
+//      stringComplete = false;
+//      inputString = "";
+//    }
   }
   
+}
+
+void INIT(){
+  Serial.println("Scanning...");
+ 
+  nDevices = 0;
+  for(addr = 1; addr < 127; addr++ )
+  {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    if(Wire.available() == 0){
+    Wire.beginTransmission(addr);
+    Wire.write("1");
+    error = Wire.endTransmission();
+    }
+    if (error == 0)
+    {
+      Serial.print("I2C device found at address 0x");
+      if (addr<16)
+        Serial.print("0");
+      Serial.print(addr,HEX);
+      Serial.println("  !");
+ 
+      nDevices++;
+    }
+    else if (error==4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (addr<16)
+        Serial.print("0");
+      Serial.println(addr,HEX);
+    }    
+  }
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("done\n");
+ 
+  //delay(5000);    
+  //Serial.println(nDevices);   
+  // wait 5 seconds for next scan
 }
 
 void CALI(){
   
   while (end_calib == '0'){ 
-    
-    if(Wire.available() == 0 && a == 1){ //if nothing is on the bus we can send
-      Wire.beginTransmission(address); //get BUS
-      Wire.write("1");  
-      Wire.endTransmission(); //release BUS
+    if(nDevices==0 && a==1){ 
+    INIT();
     }
-    
-    delay(100);
-    a = 2;
-
-    if (init_flag == '1'){
-      arduino = '2';
-      other_arduino = '1';
-      Serial.print("Arduino");
-      Serial.println(arduino);
-      init_flag = '2';
+    if (nDevices>0){
+//      if(Wire.available() == 0 && a == 1 ){ //if nothing is on the bus we can send
+//        Wire.beginTransmission(address); //get BUS
+//        Wire.write("I1");  
+//        Wire.endTransmission(); //release BUS
+//      }
       
-    }else if(init_flag == '0'){
-      arduino = '1';
-      other_arduino = '2';
-      Serial.print("Arduino");
-      Serial.println(arduino);
-      init_flag = '2';
+      delay(100);
+      a = 2;
+  
+      if (init_flag == '1'){
+        arduino = '2';
+        other_arduino = '1';
+        Serial.print("Arduino");
+        Serial.println(arduino);
+        init_flag = '2';
+        
+      }else if(init_flag == '0'){
+        arduino = '1';
+        other_arduino = '2';
+        Serial.print("Arduino");
+        Serial.println(arduino);
+        init_flag = '2';
+        
+      }
+  
+      if (arduino == '1' && calib_flag1 == '0'){
+        LDR_calib(1);
+        Serial.println("eu sou o 1 e eu acabei a minha calibração");
+        calib_flag1 = '1';
+      }
       
-    }
-
-    if (arduino == '1' && calib_flag1 == '0'){
-      LDR_calib(1);
-      Serial.println("eu sou o 1 e eu acabei a minha calibração");
-      calib_flag1 = '1';
-    }
-    
-    if (arduino == '2' && calib_flag1 == '1' && calib_flag2 == '0'){
-      LDR_calib(2);
-      
-        if(Wire.available()==0){ //if nothing was on the bus we can send
-          Wire.beginTransmission(address); //get BUS
-          Wire.write("DD");  
-          Wire.endTransmission(); //release BUS
-          Serial.println("eu sou o 2 e eu acabei a minha calibração");
-          calib_flag2 = '1';
-         
-        }
-      
-    }
-
-    if (calib_flag1 == '1' && calib_flag2 == '1'){
-      send_parameters();
-      end_calib = '1';
+      if (arduino == '2' && calib_flag1 == '1' && calib_flag2 == '0'){
+        LDR_calib(2);
+        
+          if(Wire.available()==0){ //if nothing was on the bus we can send
+            Wire.beginTransmission(address); //get BUS
+            Wire.write("DD");  
+            Wire.endTransmission(); //release BUS
+            Serial.println("eu sou o 2 e eu acabei a minha calibração");
+            calib_flag2 = '1';
+           
+          }
+        
+      }
+  
+      if (calib_flag1 == '1' && calib_flag2 == '1'){
+        send_parameters();
+        end_calib = '1';
+      }
     }
   }
 }
@@ -233,9 +290,12 @@ void receiveEvent(int howMany){
   
   if(a == 1){
     init_flag = msg_received[0];
+    nDevices=1;
     a = 2;
   } 
-      
+  if(msg_received[0] == 'P'){  
+    Recalibrate=1; 
+  }
 }
 
 

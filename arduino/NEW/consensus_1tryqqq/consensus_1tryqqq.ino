@@ -5,6 +5,37 @@
 #define MEAN_ACQ 5
 #define euler 2.718281828
 
+//Control variables
+double avg_read = 0.0; //from 0 to 1023
+double pi_i = 0.0;
+double pi_p = 0.0;
+double vin = 0.0;
+double vf = 0.0;
+double t = 0.0;
+double ti = 0.0;
+double tau = 0.0; //0.013
+double vt = 0.0;
+double l = 0.0;
+double Lu = 0.0;
+double feedforward_term = 0.0;
+double feedback_term = 0.0;
+double gain = 0.0;
+double e = 0.0;
+double pi_Kp = 0.5;
+double pi_Ki = 13.5; //Ki=13.5
+double pi_K1 = pi_Kp*1; //b=1
+double Ts = 0.01;
+double pi_K2 = pi_Kp*pi_Ki*Ts/2;
+double vldr = 0.0;
+double input = 0.0;
+double i_ant = 0.0; 
+double e_ant = 0.0;
+double sum = 0.0;
+double K_windup = 1.5;
+int j=0;
+int r1 = 10; //kOhm
+double r_ldr = 0.0;
+double lux = 0.0;
 
 //I2C Scanner variables
 byte error, addr;
@@ -16,7 +47,11 @@ volatile boolean occupancy_state_prev = false;
 const byte interruptPin = 2;
 volatile int buttonState = 0;
 
+
 //Consensus variables
+volatile double t_start_cycle_consensus = 0.0;
+const double Ts_consensus = 0.005;
+
 struct node{
   int index;
   double d[2];
@@ -32,14 +67,14 @@ struct node{
 
 node node1, node2;
 double cost1, cost2;
-volatile int my_L = 10, other_L = 10, consensus_iter = 2,
+volatile int my_L = 10, other_L = 10, consensus_iter = 0,
              consensus_iter_aux = 0; //10LUX is the reference lower bound for our empty desks
 volatile float o1, o2;
 const int c1 = 1, c2 = 1, c[2] = {c1, c2};
 volatile float o[2] = {0.0,0.0}, K[2][2] = {{0.0,0.0},{0.0,0.0}};
 const double rho = 0.07;
 volatile double d1[2] = {0,0}, d2[2] = {0,0};
-volatile boolean node_updated = false;
+volatile boolean node_updated = false , go_to_next_iter = false;
 volatile double optimal_d1 = 0.0, optimal_d2 = 0.0;
 
 
@@ -53,21 +88,21 @@ volatile char charVal[10], charValmy_Kii[10], charValmy_Kij[10],
               arduino = '0', other_arduino = '0', end_calib = '0';
 volatile double KK[25], K2[24], t_start_cycle = 0.0;
 volatile int p = 0, a = 1;
-char myConcatenation[20],  msg_received[50];
+char myConcatenation[60],  msg_received[60];
 const double m = -0.7343; // -0.6789; //-0.5421;
 const double b = 0.7052; //1.86; // 1.4390;
-const double Ts = 0.01;
+//const double Ts = 0.01;
 const int address = 0x48; //broadcast
 
 volatile boolean get_external_luminance = true, sent_consensus_parameters = false,
                  received_consensus_parameters = false, first = true;
-
 
 void setup(){
   Serial.begin(1000000);
   
   Wire.begin(address); //join as master
   Wire.onReceive(receiveEvent);
+  Wire.setClock(100000L);
 
   //Occupancy button
   attachInterrupt(0, button_pressed, RISING);
@@ -77,129 +112,61 @@ void setup(){
 
   //Do the initial calibration
   CALI();
-  
-  while(!received_consensus_parameters){;}
-  
+
+  //Run consensus to get the initial optimal dimming level 
+  run_consensus(true, &node1, &node2);
+
+  if(arduino == '1'){
     
-    //Initialize consensus
-    consensus_initialization();
-  
-    //For debug only
-    print_node_info(node1, node2);
-  
-    for(consensus_iter = 0; consensus_iter < 50; consensus_iter++){
-      Serial.print("iteration:  ");
-      Serial.println(consensus_iter);
-      
-      if(arduino == '1'){
-        if(end_calib == '1'){
-          Serial.print("K11:  ");
-          Serial.print(my_Kii,4);
-          Serial.print("  K12:  ");
-          Serial.print(my_Kij,4);
-          Serial.print("  K21:  ");
-          Serial.print(other_Kij,4);
-          Serial.print("  K22:  ");
-          Serial.print(other_Kii,4);
-          Serial.print("  o1:  ");
-          Serial.print(my_o,4);
-          Serial.print("  o2:  ");
-          Serial.println(other_o,4);
-  
-          end_calib = '2';
-        }
+        //Final desired value for the voltage in volts
+        l = optimal_d1*node1.k[0]+optimal_d2*node1.k[1]+node1.o;
+        vf = (5/(nthroot(l/pow(10,-b/m),1/m)+1));
         
-        //solve node 1 selfish problem
-        cost1 = primal_solve(&node1, rho);
+        //Initial voltage read by the LDR (before the step to the reference value)
+        vin = ((analogRead(LDR)*5.0)/1023);
+        
+        //Serial.println(vi);
+        ti = micros();
     
-        //print arduino 1 solution for the dimming level d of arduino 1
-        //Serial.print(node1.d[0],4);
-        //Serial.print("  ");
-        //print arduino 1 solution for the dimming level d of arduino 2
-        //Serial.print(node1.d[1],4);
-        //Serial.print("  ");
-        //print the cost of the solution found by arduino 1
-        //Serial.println(cost1);
-  
-        //Send my proposed solution to arduino 2
-        dtostrf(consensus_iter, 4, 4, charValiter);
-        dtostrf(node1.d[0], 4, 4, charVald1);
-        dtostrf(node1.d[1], 4, 4, charVald2);
-  
-        sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
-      
-        Serial.print("sending message: ");
-        Serial.println(myConcatenation);
-      
-        send_message(myConcatenation);
-  
-        //Wait until I receive proposed solution from arduino 2
-        //Update node2 with the d's that arduino 2 sent to me (done in the receiveEvent)
-        while (!node_updated){;}
-        node_updated = false;
-        
-        //Compute my average d_av and update my node node1, using the updated node2
-        compute_average(&node1, node2);
-  
-        //Update local lagrangians
-        update_lagrangian(&node1, rho);
-        
+        // find the optimal system gain and tau for the desired LED voltage 
+        if (vf <= 1){
+          tau= -0.0210*vf  +  0.0372;}
+        else if (vf <= 2){
+          tau = -0.0048*vf  +  0.0212;}
+        else if (vf <= 3){
+           tau = -0.0012*vf  +  0.0142;}
+        else if (vf <= 4){
+          tau=0.0107;}
+        else{
+          tau = -0.0037*vf  +  0.0250;}
+          
+        feedforward_term = vf;
       }else if(arduino == '2'){
-        
-        if(end_calib == '1'){
-          Serial.print("K11:  ");
-          Serial.print(other_Kii,4);
-          Serial.print("  K12:  ");
-          Serial.print(other_Kij,4);
-          Serial.print("  K21:  ");
-          Serial.print(my_Kij,4);
-          Serial.print("  K22:  ");
-          Serial.print(my_Kii,4);
-          Serial.print("  o1:  ");
-          Serial.print(other_o,4);
-          Serial.print("  o2:  ");
-          Serial.println(my_o,4);
-  
-          end_calib = '2';
-        }
-        
-        //solve node 2 selfish problem 
-        cost2 = primal_solve(&node2, rho);
-  
-        //print arduino 2 solution for the dimming level d of arduino 1
-        //Serial.print(node2.d[0],4);
-        //Serial.print("  ");
-        //print arduino 2 solution for the dimming level d of arduino 2
-        //Serial.print(node2.d[1],4);
-        //Serial.print("  ");
-        //print the cost of the solution found by arduino 2
-        //Serial.println(cost2);
-  
-        //Send my proposed solution to arduino 1
-        dtostrf(consensus_iter, 4, 4, charValiter);
-        dtostrf(node2.d[0], 4, 4, charVald1);
-        dtostrf(node2.d[1], 4, 4, charVald2);
-  
-        sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
       
-        Serial.print("sending message: ");
-        Serial.println(myConcatenation);
-      
-        send_message(myConcatenation);
-  
-       
-        //Wait until I receive proposed solution from arduino 1         
-        //Update node1 with the d's that arduino 1 sent to me
-        while (!node_updated){;}
-        node_updated = false;
+        //Final desired value for the voltage in volts
+        l = optimal_d1*node2.k[0]+optimal_d2*node2.k[1]+node2.o;
+        vf = (5/(nthroot(l/pow(10,-b/m),1/m)+1));
         
-        //Compute my average d_av and update my node node1, using the updated node2
-        compute_average(&node2, node1);
-  
-        //Update local lagrangians
-        update_lagrangian(&node2, rho);
+        //Initial voltage read by the LDR (before the step to the reference value)
+        vin = ((analogRead(LDR)*5.0)/1023);
+        
+        //Serial.println(vi);
+        ti = micros();
+    
+        // find the optimal system gain and tau for the desired LED voltage 
+        if (vf <= 1){
+          tau= -0.0210*vf  +  0.0372;}
+        else if (vf <= 2){
+          tau = -0.0048*vf  +  0.0212;}
+        else if (vf <= 3){
+           tau = -0.0012*vf  +  0.0142;}
+        else if (vf <= 4){
+          tau=0.0107;}
+        else{
+          tau = -0.0037*vf  +  0.0250;}
+          
+        feedforward_term = vf;
       }
-    }
   
 }
 
@@ -210,30 +177,147 @@ void loop(){
   
     if(occupancy_state != occupancy_state_prev){
       occupancy_state_prev = occupancy_state;
-      send_occupancy_state();
+      send_occupancy_state(&node1, &node2);
     }
+
+    if(received_consensus_parameters){
+      run_consensus(false, &node1, &node2);
+      if(arduino == '1'){
+    
+        //Final desired value for the voltage in volts
+        l = optimal_d1*node1.k[0]+optimal_d2*node1.k[1]+node1.o;
+        vf = (5/(nthroot(l/pow(10,-b/m),1/m)+1));
+        
+        //Initial voltage read by the LDR (before the step to the reference value)
+        vin = ((analogRead(LDR)*5.0)/1023);
+        
+        //Serial.println(vi);
+        ti = micros();
+    
+        // find the optimal system gain and tau for the desired LED voltage 
+        if (vf <= 1){
+          tau= -0.0210*vf  +  0.0372;}
+        else if (vf <= 2){
+          tau = -0.0048*vf  +  0.0212;}
+        else if (vf <= 3){
+           tau = -0.0012*vf  +  0.0142;}
+        else if (vf <= 4){
+          tau=0.0107;}
+        else{
+          tau = -0.0037*vf  +  0.0250;}
+          
+        feedforward_term = vf;
+      }else if(arduino == '2'){
       
-    //After running consensus for consensus_iter, the optimal d for all arduinos has been found
-    if(arduino == '1'){
-      optimal_d1 = node1.d[0]; //optimal dimming level for arduino 1, found by arduino 1
-      optimal_d2 = node1.d[1]; //optimal dimming level for arduino 2, found by arduino 1
-    }else if(arduino == '2'){
-      optimal_d1 = node2.d[0]; //optimal dimming level for arduino 1, found by arduino 1
-      optimal_d2 = node2.d[1]; //optimal dimming level for arduino 2, found by arduino 1
+        //Final desired value for the voltage in volts
+        l = optimal_d1*node2.k[0]+optimal_d2*node2.k[1]+node2.o;
+        vf = (5/(nthroot(l/pow(10,-b/m),1/m)+1));
+        
+        //Initial voltage read by the LDR (before the step to the reference value)
+        vin = ((analogRead(LDR)*5.0)/1023);
+        
+        //Serial.println(vi);
+        ti = micros();
+    
+        // find the optimal system gain and tau for the desired LED voltage 
+        if (vf <= 1){
+          tau= -0.0210*vf  +  0.0372;}
+        else if (vf <= 2){
+          tau = -0.0048*vf  +  0.0212;}
+        else if (vf <= 3){
+           tau = -0.0012*vf  +  0.0142;}
+        else if (vf <= 4){
+          tau=0.0107;}
+        else{
+          tau = -0.0037*vf  +  0.0250;}
+          
+        feedforward_term = vf;
+      }
     }
-  
-//    Serial.print("optimal_d1:  ");
-//    Serial.print(optimal_d1);
-//    Serial.print("  optimal_d2:  ");
-//    Serial.println(optimal_d2);
-      
-    if((micros() - t_start_cycle)*pow(10,-6) < Ts){ delay(Ts - (micros() - t_start_cycle)*pow(10,-6)); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
+
+    //CONTROL
+    
+    //reset the sum
+    sum = 0.0;
+    
+    //acquire many values in a single sampling time
+    for (j = 0; j < MEAN_ACQ ; j++) sum = sum + analogRead(LDR);
+
+    //Low pass filter (mean) to reduce noise
+    avg_read = sum/MEAN_ACQ;
+
+    //Convert value read (0-1023) to volts (0-5 V)
+    vldr = (avg_read/1023.0)*5.0;
+    
+    //Current time in micros
+    t = micros();
+
+    //Desired voltage at current time
+    vt = vf -((vf - vin)*pow(euler, -((t-ti)*pow(10,-6))/tau));
+
+    //Error between the voltage that we should obtain at current time and the voltage read by the LDR at current time
+    e = vt - vldr;
+
+    //Deadzone
+    e=deadzone(e,-0.02,0.02);
+    
+    pi_p = pi_K1*vt - pi_Kp*vldr;
+    pi_i = i_ant + pi_K2*(e + e_ant);
+    
+    feedback_term = pi_p+pi_i;
+       
+    input = feedback_term + feedforward_term;
+
+    //Anti windup
+    if (input < 0){
+      pi_i = pi_i + (K_windup)*(0.0-input);
+      input = 0;
+    }
+    else if(input > 4){
+      pi_i = pi_i + (K_windup)*(4-input);
+      input = 4;
+    }
+
+    //Write PWM to LED
+    analogWrite(LED, ((input)*255)/5);
+
+     Lu=pow(10,-b/m)*pow(((5/vldr)-1),1/m);
+     
+    //Prints
+    Serial.print(vf);
+    Serial.print("\t");
+    Serial.print(vldr);
+    Serial.print("\t");
+    Serial.print(vt);
+    Serial.print("\t");
+    Serial.println(Lu);
+
+    //y_ant = vldr;
+    i_ant = pi_i;
+    e_ant = e;
+          
+    if((micros() - t_start_cycle)*pow(10,-6) < Ts){ delay((Ts - (micros() - t_start_cycle)*pow(10,-6))*1000); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
     else{Serial.println((micros() - t_start_cycle)*pow(10,-6));} //prints the time that the cycle took
     
 }
 
+double nthroot(double number, double n){
+  if (n == 0) return NAN;
+  if (number > 0) return pow(number, 1.0 / n);
+  if (number == 0) return 0;
+  if (number < 0 && int(n) == n && (int(n) & 1)) return -pow(-number, 1.0 / n);
+  return NAN;
+}
 
-
+double deadzone(double x, double xmin, double xmax)
+{
+if ( x >= xmax )
+return x-xmax;
+else if (x <= xmin)
+return x + xmin;
+else
+return 0;
+}
 
 void CALI(){
   
@@ -288,10 +372,12 @@ void CALI(){
 }
 
 void receiveEvent(int howMany){
+  //double start_time = micros();
   int i = 0;
+  char c = " ";
 
-  while(Wire.available()> 0){
-    char c = Wire.read();
+  while(Wire.available() >  0 && c != ';'){
+    c = Wire.read();
 
     if(i < 50){
       msg_received[i] = c;
@@ -313,10 +399,7 @@ void receiveEvent(int howMany){
 
     p = p+1;
     
-  }
-
-  //done (the other)
-  if(msg_received[0] == 'D' && msg_received[1] == 'D'){
+  }else if(msg_received[0] == 'D' && msg_received[1] == 'D'){   //done (the other)
     Serial.println("o outro acabou");
     calib_flag2 = '1';
     
@@ -329,23 +412,41 @@ void receiveEvent(int howMany){
     //Serial.print("my_Kij  ");
     //Serial.println(my_Kij);
     calib_flag1 = '1';
-  }
-
-  if(msg_received[0] == 'O'){
+    
+  } else if(msg_received[0] == 'O'){
 
     //Just to check
     if(msg_received[1] == other_arduino){
       
       if(msg_received[2] == '0'){ //other arduino changed the state from occupied to free
         other_L = 10; //FREE -> 10 lux
-      }else if(msg_received[4] == '1'){ //other arduino changed the state from free to occupied
-        other_L = 50; //OCCUPIED -> 50 lux
-      }
-      
-    }
-  }
 
-  if(msg_received[0] == 'P'){
+        if(other_arduino == '1'){
+          //update other node
+          node1.L = 10;
+          
+        }else if(other_arduino == '2'){
+          //update other node
+          node2.L = 10;
+        }
+        
+      }else if(msg_received[2] == '1'){ //other arduino changed the state from free to occupied
+        other_L = 55; //OCCUPIED -> 50 lux
+
+        if(other_arduino == '1'){
+          //update other node
+          node1.L = 55;
+          
+        }else if(other_arduino == '2'){
+          //update other node
+          node2.L = 55;
+        }
+      } 
+    }
+    
+    received_consensus_parameters = true;
+    
+  } else if(msg_received[0] == 'P'){
 
     String pch;
     int k = 1;
@@ -364,9 +465,10 @@ void receiveEvent(int howMany){
 
     end_calib = '1';
     received_consensus_parameters = true;
-  }
-
-  if(msg_received[0] == 'C'){
+    
+  } else if (msg_received[0] == 'E'){
+    go_to_next_iter = true;
+  } else if(msg_received[0] == 'C'){
 
     String pch;
     int k = 1;
@@ -401,7 +503,6 @@ void receiveEvent(int howMany){
 
       node_updated = true;
     }
-    
   }
   
   if(a == 1){
@@ -410,8 +511,9 @@ void receiveEvent(int howMany){
     a = 2;
   } 
 
-  //if(msg_received[0] == 'P') Recalibrate = 1;
-      
+  //Serial.print("Elapsed time in receiveEvent ISR:  ");
+  //Serial.println(micros()-start_time);
+  //delayMicroseconds(800);    
 }
 
 
@@ -420,7 +522,7 @@ void LDR_calib(char arduino){
   int j = 0;
   int i = 0;
   
-  for (j = 0; j < 10; j++){
+  for (j = 0; j < 9; j++){
     i = j;
     
     analogWrite(LED, 28.33*j);
@@ -437,18 +539,19 @@ void LDR_calib(char arduino){
     }
 
     if (j != 0){
-      vled = ((10.0*j)/255.0)*5.0;
+      vled = ((28.33*j)/255.0)*5.0;
       L = pow(10,-b/m)*pow(((5/vled)-1),1/m);
-      
-      dtostrf(L, 4, 4, charVal);
-      
-      //delay
       delay(250);
-      sprintf(myConcatenation,"L=%s",charVal);
-      
+      //Serial.println(L);      
       vi = ((analogRead(LDR)*5.0)/1023);
       Li = pow(10,-b/m)*pow(((5/vi)-1),1/m);
+      dtostrf(Li, 4, 4, charVal);
       
+      //delay
+      //delay(250);
+      sprintf(myConcatenation,"L=%s",charVal);
+      
+     
       send_message(myConcatenation);
       
       KK[i] = Li/L;
@@ -487,7 +590,7 @@ void send_parameters(){
 
   send_message(myConcatenation);
 
-  sent_consensus_parameters = true;
+  //sent_consensus_parameters = true;
 }
 
 void consensus_initialization(){
@@ -542,7 +645,11 @@ void send_message(char* msg){
     if(Wire.available() == 0){ //if nothing was on the bus we can send
       Wire.beginTransmission(address); //get BUS
       Wire.write(msg);  
-      Wire.endTransmission(); //release BUS
+      //Wire.endTransmission(); //release BUS
+
+      if(Wire.endTransmission() != 0){
+        Serial.println("ERROR transmitting last message!");
+      }
       break;
     }
   }
@@ -806,26 +913,53 @@ double evaluate_cost(node _node, double* d, double rho){
 
 void button_pressed(){
     //Change in occupancy state!
-    occupancy_state = !occupancy_state;       
+    buttonState = digitalRead(interruptPin);
+    delayMicroseconds(300);
+    if (buttonState == digitalRead(interruptPin)){
+    occupancy_state = !occupancy_state;}
 }
 
-void send_occupancy_state(){
+void send_occupancy_state(node* _node, node* _nodee){
   
     if(occupancy_state){
             
-      if(arduino == '1') send_message("O11");
-      else if(arduino == '2') send_message("O21");
+      if(arduino == '1'){
+        send_message("O11");
 
-      my_L = 50; //OCCUPIED -> 50 lux
+        //update my node
+        _node->L = 55;
+      }
+      else if(arduino == '2'){
+        send_message("O21");
+
+        //update my node
+        _nodee->L = 55;
+      }
+
+      my_L = 55; //OCCUPIED -> 55 lux
       
     }
     else{
       
-      if(arduino == '1') send_message("O10");
-      else if(arduino == '2') send_message("O20");
+      if(arduino == '1'){
+        send_message("O10");
+        
+        //update my node
+        _node->L = 10;
+      }
+      else if(arduino == '2'){
+        send_message("O20");
+
+        //update my node
+        _nodee->L = 10;
+      }
 
       my_L = 10; //FREE -> 10 lux
     }
+
+    //sent_consensus_parameters = true;
+    received_consensus_parameters = true;
+    //run_consensus(false);
 }
 
 /********************************************************************
@@ -873,4 +1007,171 @@ void INIT(){
     Serial.println("No I2C devices found\n");
   else
     Serial.println("done\n");
+}
+
+
+
+void run_consensus(boolean first, node * _node, node * _nodee){
+
+  //Wait until it receives consensus parameters 
+  //while(!received_consensus_parameters && !sent_consensus_parameters){;}
+  while(!received_consensus_parameters){;}
+
+  received_consensus_parameters = false;
+  //sent_consensus_parameters = false;
+
+  if (first){
+    //Initialize consensus
+    consensus_initialization();
+  }
+
+  //For debug only
+  print_node_info(*_node, *_nodee);
+
+  for(consensus_iter = 0; consensus_iter < 50; consensus_iter++){
+    //Store the time at which the cycle begins
+    t_start_cycle_consensus = micros();
+  
+    Serial.print("iteration:  ");
+    Serial.println(consensus_iter);
+    
+    if(arduino == '1'){
+      if (consensus_iter == 0){
+        Serial.print("K11:  ");
+        Serial.print(my_Kii,4);
+        Serial.print("  K12:  ");
+        Serial.print(my_Kij,4);
+        Serial.print("  K21:  ");
+        Serial.print(other_Kij,4);
+        Serial.print("  K22:  ");
+        Serial.print(other_Kii,4);
+        Serial.print("  o1:  ");
+        Serial.print(my_o,4);
+        Serial.print("  o2:  ");
+        Serial.println(other_o,4);
+      }
+      
+      
+      //solve node 1 selfish problem
+      cost1 = primal_solve(_node, rho);
+  
+      //print arduino 1 solution for the dimming level d of arduino 1
+      //Serial.print(node1.d[0],4);
+      //Serial.print("  ");
+      //print arduino 1 solution for the dimming level d of arduino 2
+      //Serial.print(node1.d[1],4);
+      //Serial.print("  ");
+      //print the cost of the solution found by arduino 1
+      //Serial.println(cost1);
+
+      //Send my proposed solution to arduino 2
+      dtostrf(consensus_iter, 4, 4, charValiter);
+      dtostrf(_node->d[0], 4, 4, charVald1);
+      dtostrf(_node->d[1], 4, 4, charVald2);
+
+      sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
+    
+      Serial.print("sending message: ");
+      Serial.println(myConcatenation);
+    
+      send_message(myConcatenation);
+
+      //delayMicroseconds(10);
+
+      //Wait until I receive proposed solution from arduino 2
+      //Update node2 with the d's that arduino 2 sent to me (done in the receiveEvent)
+      while (!node_updated){;}
+      node_updated = false;
+      Serial.println("Sai while");
+      
+      //Compute my average d_av and update my node node1, using the updated node2
+      compute_average(_node, *_nodee);
+
+      //Update local lagrangians
+      update_lagrangian(_node, rho);
+      
+    }else if(arduino == '2'){
+      
+      if (consensus_iter == 0){
+        Serial.print("K11:  ");
+        Serial.print(other_Kii,4);
+        Serial.print("  K12:  ");
+        Serial.print(other_Kij,4);
+        Serial.print("  K21:  ");
+        Serial.print(my_Kij,4);
+        Serial.print("  K22:  ");
+        Serial.print(my_Kii,4);
+        Serial.print("  o1:  ");
+        Serial.print(other_o,4);
+        Serial.print("  o2:  ");
+        Serial.println(my_o,4);
+      }
+      
+      //solve node 2 selfish problem 
+      cost2 = primal_solve(_nodee, rho);
+
+      //print arduino 2 solution for the dimming level d of arduino 1
+      //Serial.print(node2.d[0],4);
+      //Serial.print("  ");
+      //print arduino 2 solution for the dimming level d of arduino 2
+      //Serial.print(node2.d[1],4);
+      //Serial.print("  ");
+      //print the cost of the solution found by arduino 2
+      //Serial.println(cost2);
+
+      //Send my proposed solution to arduino 1
+      dtostrf(consensus_iter, 4, 4, charValiter);
+      dtostrf(_nodee->d[0], 4, 4, charVald1);
+      dtostrf(_nodee->d[1], 4, 4, charVald2);
+
+      sprintf(myConcatenation,"C %s %s %s;", charValiter, charVald1, charVald2);
+    
+      Serial.print("sending message: ");
+      Serial.println(myConcatenation);
+    
+      send_message(myConcatenation);
+
+      //delayMicroseconds(10);
+     
+      //Wait until I receive proposed solution from arduino 1         
+      //Update node1 with the d's that arduino 1 sent to me
+      while (!node_updated){;}
+      node_updated = false;
+      Serial.println("Sai while");
+      
+      //Compute my average d_av and update my node node1, using the updated node2
+      compute_average(_nodee, *_node);
+
+      //Update local lagrangians
+      update_lagrangian(_nodee, rho);
+             
+    }
+
+    Serial.print("sending message: ");
+    Serial.println("E");
+    send_message("E");
+    while(!go_to_next_iter){;}
+    go_to_next_iter = false; 
+    
+    if((micros() - t_start_cycle_consensus)*pow(10,-6) < Ts_consensus){ delay((Ts_consensus - (micros() - t_start_cycle_consensus)*pow(10,-6))*1000); } //if the cycle doesn't exceed the sampling time, sleep for the rest amount of time
+    else{Serial.println((micros() - t_start_cycle_consensus)*pow(10,-6),5);} //prints the time that the cycle took
+  
+  }
+
+  //After running consensus for consensus_iter, the optimal d for all arduinos has been found
+  if(arduino == '1'){
+    optimal_d1 = _node->d[0]; //optimal dimming level for arduino 1, found by arduino 1
+    optimal_d2 = _node->d[1]; //optimal dimming level for arduino 2, found by arduino 1
+  }else if(arduino == '2'){
+    optimal_d1 = _nodee->d[0]; //optimal dimming level for arduino 1, found by arduino 1
+    optimal_d2 = _nodee->d[1]; //optimal dimming level for arduino 2, found by arduino 1
+  }
+  
+  Serial.print("optimal_d1:  ");
+  Serial.print(optimal_d1);
+  Serial.print("  optimal_d2:  ");
+  Serial.println(optimal_d2);
+
+  consensus_iter = 0;
+
 }
