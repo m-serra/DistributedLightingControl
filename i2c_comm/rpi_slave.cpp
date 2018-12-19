@@ -11,6 +11,8 @@
 #include <cstring>
 #include "../tcp_comm/DeskIlluminationData.hpp"
 #include "rpi_slave.h"
+#include <ctime>
+#include <cstdlib>
 #define SLAVE_ADDR 0x48
 
 using namespace std;
@@ -47,7 +49,8 @@ int close_slave(bsc_xfer_t &xfer) {
 void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 
 	int status, j;
-	int desk, time_stamp, i_meas, i_ref;
+	int desk;
+	int time_stamp, i_meas, i_ref;
 	int len = 8;
 	char msg[len];
 
@@ -64,24 +67,29 @@ void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 	const auto times = sampling_frequency * block_size_in_seconds;
     const auto delay = std::chrono::microseconds{1000000 / sampling_frequency};
     auto next_sample = clock::now() + delay;
+    
+    std::srand(std::time(nullptr)); // use current time as seed for random generator
+    int random_variable = std::rand();
 
     while(1){			
 		xfer.txCnt = 0;
 		status = bscXfer(&xfer);
 
-		if(xfer.rxCnt > 0){
-			// Protect with mutex
-			//printf("Received %d bytes\n", xfer.rxCnt);
-			
-			for(j=0;j<xfer.rxCnt;j++){
-				msg[j] = xfer.rxBuf[j];
-				//printf("%c",xfer.rxBuf[j]);
-			}
-			
-			sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
+		//if(xfer.rxCnt > 0){
 		
+			
+		//	for(j=0;j<xfer.rxCnt;j++){
+			//	msg[j] = xfer.rxBuf[j];
+				
+			//}
+			i_meas = std::rand()/((RAND_MAX + 1u)/1024);
+			i_ref = std::rand()/((RAND_MAX + 1u)/512);
+            time_stamp = std::rand()/((RAND_MAX + 1u)/10);
+			
+			//sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
+			
 			data.new_sample(time_stamp, i_meas, i_ref);
-		}
+		//}
 				
 		std::this_thread::sleep_until(next_sample);
 		next_sample += delay;

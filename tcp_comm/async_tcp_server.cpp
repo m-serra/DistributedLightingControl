@@ -25,14 +25,15 @@ class session
 {
 	tcp::socket socket_;
     enum { max_length = 8 };
+    std::size_t msg_out_length = 8;
     char msg_in[max_length];
     char str[max_length];
-    //char* msg_out;
     char request; //g: current value; s: start/stop stream; b: last minute buffer
     char statistic;
     int data_tuple[3];
     int desk = -1;
-    char *buff;
+    char *msg_out;
+
     
     DeskIlluminationData& data;
 	
@@ -43,7 +44,8 @@ class session
             data(data_)
         {
 			int n_samples_minute = data.get_n_samples_minute();
-			buff = new char [(max_length+2) * n_samples_minute + 1];
+			int max_precision = 4;
+			msg_out = new char [(max_precision+1)*n_samples_minute+1];
 		}
 
         void start(){
@@ -85,43 +87,30 @@ class session
 		// instead of char mode I can use the class field request. For now this is less
 		// prone to errors
         void do_write(){
+						
+			data.get_request_info(desk, request, statistic, msg_out);
 			
-			char *msg_out;
-			
-            if(request == 'g'){
-				data.get_last_sample(data_tuple);
-				sprintf (str, "%d_%d_%d_%d\n", desk, data_tuple[0], data_tuple[1], data_tuple[2]);
-				msg_out = new char [strlen(str)];
-				strcpy(msg_out, str);
-			}
-			else if(request == 'b'){ 
-				data.get_minute_history(desk, buff);
-				msg_out = new char [strlen(buff)];
-				strcpy(msg_out,buff);
-			}
-			  
-            printf("Reply: %s\n", msg_out);
-            int len = strlen(msg_out);
+            printf("Reply: %s", msg_out);
+
+            int msg_len = strlen(msg_out);
+            msg_out_length = msg_len;
             
+            printf("Sent: %d  bytes.\n\n", msg_len);
+  
             auto self(shared_from_this());
-            boost::asio::async_write(socket_, boost::asio::buffer(msg_out,len),
-                [msg_out, this, self](boost::system::error_code ec, std::size_t /*length*/){
+            boost::asio::async_write(socket_, boost::asio::buffer(msg_out, msg_out_length),
+                [this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
-						printf("Message sent: %s\n", msg_out);
-						/*if(request == 'b' && sample < data.get_n_samples_minute()){
-							do_write(sample + 1);
-						}
-						else if(request == 's'){
-							//Handle streamm request
-						}
-						else{*/
-							//if current value or last value of last minute buffer
-							delete [] msg_out;
-							do_read();
-						/*}*/
+						msg_out[0] = '\0';
+						do_read();
                     }
+                    else{
+						msg_out[0] = '\0';
+					}
             });
+            
+
         }
 };
 
