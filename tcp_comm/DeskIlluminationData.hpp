@@ -10,7 +10,7 @@ class DeskIlluminationData{
     private:
         int n_samples_minute;
         int last_sample_pointer;
-        int sampling_frequency;
+        
         mutex mtx;
     
     public:
@@ -18,6 +18,7 @@ class DeskIlluminationData{
         int *time_stamp;
         int *i_meas;
         int *i_ref;
+        int sampling_frequency;
         
         DeskIlluminationData():
 			sampling_frequency(0),

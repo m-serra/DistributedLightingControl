@@ -62,9 +62,7 @@ void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 	bsc_xfer_t xfer;
 	status = init_slave(xfer, SLAVE_ADDR);
 	
-	int block_size_in_seconds = 30;
 	using clock = std::chrono::steady_clock;
-	const auto times = sampling_frequency * block_size_in_seconds;
     const auto delay = std::chrono::microseconds{1000000 / sampling_frequency};
     auto next_sample = clock::now() + delay;
     

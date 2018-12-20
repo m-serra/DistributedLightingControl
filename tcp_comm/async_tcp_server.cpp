@@ -14,27 +14,33 @@
 #include <utility>
 #include <boost/asio.hpp>
 #include <fstream>
+#include <chrono>
+#include <thread>
+#include <cstdint>
 #include "DeskIlluminationData.hpp"
 #include "async_tcp_server.h"
+#include <curses.h>
+
 
 using namespace std;
+using namespace std::chrono;
 using boost::asio::ip::tcp;
 
 class session
     : public std::enable_shared_from_this<session>
 {
 	tcp::socket socket_;
-    enum { max_length = 8 };
+    enum { max_length = 6 };
     std::size_t msg_out_length = 8;
     char msg_in[max_length];
-    char str[max_length];
     char request; //g: current value; s: start/stop stream; b: last minute buffer
     char statistic;
     int data_tuple[3];
     int desk = -1;
     char *msg_out;
-
-    
+    int streaming = 0;
+    	
+   
     DeskIlluminationData& data;
 	
     public:
@@ -45,73 +51,118 @@ class session
         {
 			int n_samples_minute = data.get_n_samples_minute();
 			int max_precision = 4;
+
 			msg_out = new char [(max_precision+1)*n_samples_minute+1];
 		}
 
         void start(){
             do_read();
         }
-
+    
     private:
-  
+          
         void do_read(){
-            
+			
+			//static std::chrono::system_clock::time_point next_sample;
+        
             auto self(shared_from_this());
             socket_.async_read_some(boost::asio::buffer(msg_in, max_length),
                 [this, self](boost::system::error_code ec, std::size_t length){
                 
                 if (!ec){
-                    printf("Request: %s",msg_in);
+                    printw("Request: %s",msg_in);
+                    refresh();
                     
                     if(strlen(msg_in) == 1 && strcmp(msg_in, "r") == 0){
 						// Handle reset request
 					}
 					else{
 						sscanf (msg_in, "%c %c %d", &request, &statistic, &desk);
-						
-						if(request == 'g'){
-							do_write();
+						if(request == 's'){
+							
+							if(streaming == 0){
+								streaming = 1;
+								//next_sample = std::chrono::system_clock::now() + std::chrono::milliseconds(5000);
+								do_write();
+							}
+							else{
+								streaming = 0;
+								do_write();
+							}
 						}
-						else if(request == 'b'){
+						else if(request == 'g' || request == 'b'){
 							do_write();
 						}
 						else{
-							printf("Unknown request\n");
+							printw("Unknown request\n");
+							refresh();
 							do_read(); // sure??
 						}
 					}
                 }
             });
+            
+            
+            if(streaming >= 1){
+				streaming += 1;
+				do_write();
+			}
         }
 
-		// instead of char mode I can use the class field request. For now this is less
-		// prone to errors
         void do_write(){
-						
-			data.get_request_info(desk, request, statistic, msg_out);
 			
-            printf("Reply: %s", msg_out);
-
+			using clock = std::chrono::steady_clock;
+			const auto delay = std::chrono::microseconds{1000000 / 1};
+			auto next_sample = clock::now() + delay;
+			
+			if( request == 's' && streaming == 0){
+				msg_out[0] = 'a'; msg_out[1] = 'c'; msg_out[2] = 'k'; msg_out[3] = '\n'; msg_out[4] = '\0';
+			}
+			else{ 
+				data.get_request_info(desk, request, statistic, msg_out);
+			}
+			
+            printw("Reply: %s", msg_out);
+            refresh();
+            
             int msg_len = strlen(msg_out);
             msg_out_length = msg_len;
+
+            printw("Sent: %d  bytes.\n\n", msg_len);
+            refresh();
             
-            printf("Sent: %d  bytes.\n\n", msg_len);
-  
             auto self(shared_from_this());
             boost::asio::async_write(socket_, boost::asio::buffer(msg_out, msg_out_length),
-                [this, self](boost::system::error_code ec, std::size_t /*length*/){
+                [next_sample, this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
 						msg_out[0] = '\0';
-						do_read();
+						
+						if( request == 's' && streaming != 0){
+							
+							std::this_thread::sleep_until(next_sample);
+						
+							clear();
+							
+							if(streaming == 1){
+								do_read();
+							} 
+							else if(streaming > 1){
+								streaming += 1;
+								do_write();
+							}							
+						}
+							
+						if(request == 'g' || request == 'b' || ( request == 's' && streaming == 0)){
+							do_read();
+						}
                     }
                     else{
 						msg_out[0] = '\0';
+						do_read();
 					}
             });
-            
-
-        }
+        }      
 };
 
 class server{

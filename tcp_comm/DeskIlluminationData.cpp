@@ -91,7 +91,7 @@ void DeskIlluminationData::info_to_string(char *msg, char request, int info, int
 	char s[max_precision];
 	
 
-	if(request == 'g'){
+	if(request == 'g' || request == 's'){
 		sprintf(msg, "%d\n", info);
 	}
 	else if(request == 'b'){
@@ -100,7 +100,7 @@ void DeskIlluminationData::info_to_string(char *msg, char request, int info, int
 			strcat(msg, s);
 
 			if(i + 1 != n_samples_minute)
-				strcat(msg, " ");
+				strcat(msg, ",");
 		}
 		strcat(msg, "\n");
 	}	
@@ -112,7 +112,7 @@ void DeskIlluminationData::get_request_info(int desk, char mode, char statistic,
 	int info;
 	int *info_buffer;
 	
-	if(mode == 'g'){
+	if(mode == 'g' || mode =='s'){
 		//*msg_out = new char [max_precision+1];
 		get_last_sample(statistic, &info);
 	}

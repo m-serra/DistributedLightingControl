@@ -5,6 +5,7 @@
 #include "DeskIlluminationData.hpp"
 #include "../i2c_comm/rpi_slave.h"
 #include "async_tcp_server.h"
+#include <curses.h>
 
 using namespace std;
 
@@ -26,17 +27,18 @@ int main(int argc, char* argv[]){
     //DeskIlluminationData data[n_luminaires];
     DeskIlluminationData data;
     n_luminaires = 1; // DELETE
-    
+    initscr();
     //initialize data objects
     for(int i = 0; i < n_luminaires;i++){
 		data.set_sampling_frequency(sampling_frequency);
 	}
 
     thread t1 {i2c_slave_monitor, sampling_frequency, ref(data)};
-    cout << "Created Child Thread 1 # " << t1.get_id() << endl;
+    printw("Created Child Thread 1 #%d\n", t1.get_id());
     
     thread t2 {run_tcp_server, 17000, ref(data)};
-    cout << "Created Child Thread 2 # " << t2.get_id() << "\n\n";
+    printw("Created Child Thread 2 #%d\n\n", t2.get_id());
+    refresh();
     
     t1.join(); //wait until t1 finishes
     t2.join(); //wait until t2 finishes
