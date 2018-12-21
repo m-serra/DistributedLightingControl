@@ -1,13 +1,3 @@
-//
-// async_tcp_echo_server.cpp
-// ~~~~~~~~~~~~~~~~~~~~~~~~~
-//
-// Copyright (c) 2003-2015 Christopher M. Kohlhoff (chris at kohlhoff dot com)
-//
-// Distributed under the Boost Software License, Version 1.0. (See accompanying
-// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-//
-
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -19,7 +9,6 @@
 #include <cstdint>
 #include "DeskIlluminationData.hpp"
 #include "async_tcp_server.h"
-#include <curses.h>
 
 
 using namespace std;
@@ -41,15 +30,15 @@ class session
     int streaming = 0;
     	
    
-    DeskIlluminationData& data;
+    DeskIlluminationData *data;
 	
     public:
     
-        session(tcp::socket socket, DeskIlluminationData& data_): 
+        session(tcp::socket socket, DeskIlluminationData *data_): 
             socket_(std::move(socket)),
             data(data_)
         {
-			int n_samples_minute = data.get_n_samples_minute();
+			int n_samples_minute = data[0].get_n_samples_minute();
 			int max_precision = 4;
 
 			msg_out = new char [(max_precision+1)*n_samples_minute+1];
@@ -62,19 +51,18 @@ class session
     private:
           
         void do_read(){
-			
-			//static std::chrono::system_clock::time_point next_sample;
-        
+			        
             auto self(shared_from_this());
             socket_.async_read_some(boost::asio::buffer(msg_in, max_length),
                 [this, self](boost::system::error_code ec, std::size_t length){
                 
                 if (!ec){
-                    printw("Request: %s",msg_in);
-                    refresh();
+					
+                    printf("Request: %s",msg_in);
                     
-                    if(strlen(msg_in) == 1 && strcmp(msg_in, "r") == 0){
-						// Handle reset request
+                    if(msg_in[0] == 'e'){
+						do_write(1);
+						return;
 					}
 					else{
 						sscanf (msg_in, "%c %c %d", &request, &statistic, &desk);
@@ -82,21 +70,19 @@ class session
 							
 							if(streaming == 0){
 								streaming = 1;
-								//next_sample = std::chrono::system_clock::now() + std::chrono::milliseconds(5000);
-								do_write();
+								do_write(0);
 							}
 							else{
 								streaming = 0;
-								do_write();
+								do_write(0);
 							}
 						}
 						else if(request == 'g' || request == 'b'){
-							do_write();
+							do_write(0);
 						}
 						else{
-							printw("Unknown request\n");
-							refresh();
-							do_read(); // sure??
+							printf("Unknown request\n");
+							do_read();
 						}
 					}
                 }
@@ -105,57 +91,67 @@ class session
             
             if(streaming >= 1){
 				streaming += 1;
-				do_write();
+				do_write(0);
 			}
         }
 
-        void do_write(){
+        void do_write(int exit_signal){
 			
 			using clock = std::chrono::steady_clock;
-			const auto delay = std::chrono::microseconds{1000000 / 1};
+			const auto delay = std::chrono::microseconds{1000000 / data[0].sampling_frequency};
 			auto next_sample = clock::now() + delay;
 			
-			if( request == 's' && streaming == 0){
-				msg_out[0] = 'a'; msg_out[1] = 'c'; msg_out[2] = 'k'; msg_out[3] = '\n'; msg_out[4] = '\0';
+			if(exit_signal == 1){
+				sprintf(msg_out, "Exiting server smoothly\n");
+				
 			}
-			else{ 
-				data.get_request_info(desk, request, statistic, msg_out);
+			else if( request == 's' && streaming == 0){
+				sprintf(msg_out, "ack\n");
+				//msg_out[0] = 'a'; msg_out[1] = 'c'; msg_out[2] = 'k'; msg_out[3] = '\n'; msg_out[4] = '\0';
+			}
+			else{
+				data[desk].get_request_info(request, statistic, msg_out);
 			}
 			
-            printw("Reply: %s", msg_out);
-            refresh();
+            printf("Reply: %s", msg_out);
             
             int msg_len = strlen(msg_out);
             msg_out_length = msg_len;
 
-            printw("Sent: %d  bytes.\n\n", msg_len);
-            refresh();
+            printf("Sent: %d  bytes.\n\n", msg_len);
             
             auto self(shared_from_this());
             boost::asio::async_write(socket_, boost::asio::buffer(msg_out, msg_out_length),
-                [next_sample, this, self](boost::system::error_code ec, std::size_t /*length*/){
+                [exit_signal, next_sample, this, self](boost::system::error_code ec, std::size_t /*length*/){
                     
                     if (!ec){
 						msg_out[0] = '\0';
 						
+						if(exit_signal ==1){
+							delete [] msg_out;
+							//socket_.cancel();
+							socket_.close();
+					
+							return;
+						}
+						
 						if( request == 's' && streaming != 0){
 							
 							std::this_thread::sleep_until(next_sample);
-						
-							clear();
 							
 							if(streaming == 1){
 								do_read();
 							} 
 							else if(streaming > 1){
 								streaming += 1;
-								do_write();
+								do_write(0);
 							}							
 						}
 							
 						if(request == 'g' || request == 'b' || ( request == 's' && streaming == 0)){
 							do_read();
 						}
+						
                     }
                     else{
 						msg_out[0] = '\0';
@@ -167,16 +163,15 @@ class session
 
 class server{
 	
-	DeskIlluminationData& data;
+	DeskIlluminationData *data;
 	
     public:
       
-        server(boost::asio::io_service& io_service, short port, DeskIlluminationData& data_)
+        server(boost::asio::io_service& io_service, short port, DeskIlluminationData *data_)
             : acceptor_(io_service, tcp::endpoint(tcp::v4(), port)),
             socket_(io_service),
             data(data_)   
-        {
-			
+        {	
             do_accept();
         }
 
@@ -187,9 +182,9 @@ class server{
         acceptor_.async_accept(socket_,
             [this](boost::system::error_code ec){
                 if (!ec){
-                    std::make_shared<session>(std::move(socket_), data)->start();
+                    std::make_shared<session>(std::move(socket_), data)->start();;
                 }
-
+					
                 do_accept();
             });
       }
@@ -198,14 +193,17 @@ class server{
       tcp::socket socket_;
 };
 
-void run_tcp_server(int port, DeskIlluminationData& data){
+void run_tcp_server(int port, DeskIlluminationData data[]){
+
 
     try{
         boost::asio::io_service io_service;
-        server s(io_service, port, data);
+        server s(io_service, port,  data);
         io_service.run();
     }
     catch(std::exception& e){
         std::cerr << "Exception: " << e.what() << "\n";
     }
+    
+    return;
 }

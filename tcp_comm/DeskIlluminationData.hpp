@@ -33,7 +33,7 @@ class DeskIlluminationData{
 		void get_minute_history(char statistic, int *info);
         void new_sample(int time_, int i_meas_, int i_ref_);
         void get_last_sample(char statistic, int *info);
-        void get_request_info(int desk, char request, char statistic, char *msg_out );
+        void get_request_info(char request, char statistic, char *msg_out );
         void get_sample_i(int *data_tuple, int i);
         void set_sampling_frequency(int sampling_frequency_);
         int get_n_samples_minute();

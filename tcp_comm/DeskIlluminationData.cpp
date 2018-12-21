@@ -3,13 +3,14 @@
 #include "DeskIlluminationData.hpp"
 
 void DeskIlluminationData::new_sample(int time_, int i_meas_, int i_ref_){
-
+	
+	mtx.lock();
     if(last_sample_pointer == n_samples_minute){
 		last_sample_pointer = -1;
     }
 
-    mtx.lock();
     //printf("new_sample: %d_%d_%d\n", time_, i_meas_, i_ref_);
+    printf("ptr: %d %d\n", last_sample_pointer + 1, n_samples_minute);
     time_stamp[last_sample_pointer + 1] = time_;
     i_meas[last_sample_pointer + 1] = i_meas_;
     i_ref[last_sample_pointer + 1] = i_ref_;
@@ -106,19 +107,17 @@ void DeskIlluminationData::info_to_string(char *msg, char request, int info, int
 	}	
 }
 
-void DeskIlluminationData::get_request_info(int desk, char mode, char statistic, char *msg_out ){
+void DeskIlluminationData::get_request_info(char mode, char statistic, char *msg_out ){
 
-	int max_precision = 4; //9999
+	int max_precision = 4;
 	int info;
 	int *info_buffer;
 	
 	if(mode == 'g' || mode =='s'){
-		//*msg_out = new char [max_precision+1];
 		get_last_sample(statistic, &info);
 	}
 	else if(mode == 'b'){ 
 		
-		//*msg_out = new char [(max_precision+1)*n_samples_minute+1];
 		info_buffer = new int [n_samples_minute];
 		
 		for( int i = 0; i < n_samples_minute; i ++)

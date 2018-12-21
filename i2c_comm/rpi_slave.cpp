@@ -46,13 +46,14 @@ int close_slave(bsc_xfer_t &xfer) {
 	return bscXfer(&xfer);
 }
 
-void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
+void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData *data){
 
 	int status, j;
 	int desk;
 	int time_stamp, i_meas, i_ref;
-	int len = 8;
+	int len = 20;
 	char msg[len];
+
 
 	if (gpioInitialise() < 0){
 		cerr << "Error: " << strerror(errno);
@@ -73,21 +74,29 @@ void i2c_slave_monitor(int sampling_frequency, DeskIlluminationData& data){
 		xfer.txCnt = 0;
 		status = bscXfer(&xfer);
 
-		//if(xfer.rxCnt > 0){
+		if(xfer.rxCnt > 0){
 		
-			
-		//	for(j=0;j<xfer.rxCnt;j++){
-			//	msg[j] = xfer.rxBuf[j];
+			for(j=0;j<xfer.rxCnt;j++){
+				msg[j] = xfer.rxBuf[j];
 				
-			//}
-			i_meas = std::rand()/((RAND_MAX + 1u)/1024);
-			i_ref = std::rand()/((RAND_MAX + 1u)/512);
-            time_stamp = std::rand()/((RAND_MAX + 1u)/10);
+			}
+			//desk = std::rand()/((RAND_MAX + 1u)/2);
+			//i_meas = std::rand()/((RAND_MAX + 1u)/1024);
+			//i_ref = std::rand()/((RAND_MAX + 1u)/512);
+            //time_stamp = std::rand()/((RAND_MAX + 1u)/10);
+		    
+			sscanf (msg,"R %d %d %d %d", &desk, &i_meas, &time_stamp, &i_ref);
+			printf("desk: %d i_meas: %d time_stamp: %d i_ref: %d\n", desk, i_meas, time_stamp, i_ref);
 			
-			//sscanf (msg,"%d_%d_%d_%d", &desk,&time_stamp,&i_meas,&i_ref);
+			//data[desk].new_sample(time_stamp, i_meas, i_ref);
+			if(desk == 1){
+				data[0].new_sample(10, i_meas, 10);
+			}
+			else if(desk == 2){
+				data[1].new_sample(30, i_meas, 30);
+			}
 			
-			data.new_sample(time_stamp, i_meas, i_ref);
-		//}
+		}
 				
 		std::this_thread::sleep_until(next_sample);
 		next_sample += delay;
